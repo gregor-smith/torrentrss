@@ -1,7 +1,8 @@
 import os
 import re
 import json
-import platform
+import logging
+import datetime
 import tempfile
 import subprocess
 
@@ -14,10 +15,7 @@ import pkg_resources
 NAME = 'torrentrss'
 VERSION = __version__ = '0.1'
 
-SYSTEM = platform.system()
-
 CONFIG_DIR = click.get_app_dir(NAME)
-os.makedirs(CONFIG_DIR, exist_ok=True)
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
 
 DEFAULT_FEED_INTERVAL_MINUTES = 60
@@ -25,6 +23,34 @@ DEFAULT_DIRECTORY = tempfile.gettempdir()
 DEFAULT_COMMAND = click.launch
 PATH_ARGUMENT = '$PATH'
 NUMBER_REGEX_GROUP = 'number'
+
+LOG_PATH_PATTERN = os.path.join(CONFIG_DIR, 'logs/{0:%Y}/{0:%m}/{0:%Y-%m-%d_%H-%M-%S}.log')
+LOG_MESSAGE_FORMAT = '{asctime} {levelname} {module}.{funcName}: {message}'
+
+def get_log_path():
+    path = LOG_PATH_PATTERN.format(datetime.datetime.now())
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    return path
+
+def create_logger(file_level, console_level):
+    logger = logging.getLogger(NAME)
+    logger.setLevel(logging.DEBUG)
+
+    file_handler = logging.FileHandler(get_log_path())
+    file_handler.setLevel(file_level)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(console_level)
+
+    formatter = logging.Formatter(LOG_MESSAGE_FORMAT, style='{')
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    return logger
 
 class ConfigError(Exception):
     pass
