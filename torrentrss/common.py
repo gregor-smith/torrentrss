@@ -4,9 +4,10 @@ import json
 import platform
 import tempfile
 import subprocess
-import collections
 
 import click
+import requests
+import feedparser
 import jsonschema
 import pkg_resources
 
@@ -16,6 +17,7 @@ VERSION = __version__ = '0.1'
 SYSTEM = platform.system()
 
 CONFIG_DIR = click.get_app_dir(NAME)
+os.makedirs(CONFIG_DIR, exist_ok=True)
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
 
 DEFAULT_FEED_INTERVAL_MINUTES = 60
@@ -145,6 +147,56 @@ class Feed:
         self.interval_minutes = interval_minutes
         self.subscriptions = {}
 
-Subscription = collections.namedtuple('Subscription', ['name', 'feed', 'pattern',
-                                                       'directory', 'command'])
+    def fetch(self):
+        return feedparser.parse(self.url)
 
+    def matching_subscriptions(self):
+        rss = self.fetch()
+        for subscription in self.subscriptions.values():
+            for entry in rss.entries:
+                match = subscription.pattern.search(entry.title)
+                if match:
+                    number = pkg_resources.parse_version(match.group('number'))
+                    if number > subscription.number:
+                        yield subscription, entry, number
+
+class Subscription:
+    forbidden_characters_pattern = re.compile(r'[\\/:\*\?"<>\|]')
+
+    def __init__(self, name, feed, pattern, directory=DEFAULT_DIRECTORY, command=DEFAULT_COMMAND):
+        self.name = name
+        self.feed = feed
+        self.pattern = pattern
+        self.directory = directory
+        self.command = command
+
+        self.number_file_path = os.path.join(CONFIG_DIR, self.name+'.state')
+
+    @property
+    def number(self):
+        try:
+            return self._number
+        except AttributeError:
+            try:
+                with open(self.number_file_path) as file:
+                    self._number = pkg_resources.parse_version(file.readline())
+            except FileNotFoundError:
+                self._number = pkg_resources.parse_version('0')
+            return self._number
+
+    @number.setter
+    def number(self, new_number):
+        with open(self.number_file_path, 'w') as file:
+            file.write(str(new_number))
+        self._number = new_number
+
+    def torrent_path_for(self, title):
+        fixed_title = re.sub(self.forbidden_characters_pattern, '-', title)
+        return os.path.join(self.directory, fixed_title+'.torrent')
+
+    def download(self, rss_entry):
+        response = requests.get(rss_entry.link)
+        path = self.torrent_path_for(rss_entry.title)
+        with open(path, 'wb') as file:
+            file.write(response.content)
+        return path
