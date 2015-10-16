@@ -1,2 +1,2 @@
-from .cli import *
+from . import loop, cli
 from .common import *
