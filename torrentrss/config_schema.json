@@ -1,0 +1,92 @@
+{
+	"$schema": "http://json-schema.org/draft-04/schema#",
+	"type": "object",
+	"properties": {
+		"feeds": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string"
+					},
+					"url": {
+						"type": "string"
+					},
+					"interval": {
+						"type": "integer",
+						"minimum": 1
+					}
+				},
+				"required": [
+					"name",
+					"url"
+				]
+			}
+		},
+		"directories": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string"
+					},
+					"path": {
+						"type": "string"
+					}
+				}
+			}
+		},
+		"commands": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string"
+					},
+					"arguments": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						},
+						"minItems": 1
+					}
+				}
+			}
+		},
+		"subscriptions": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string"
+					},
+					"feed": {
+						"type": "string"
+					},
+					"pattern": {
+						"type": "string"
+					},
+					"directory": {
+						"type": "string"
+					},
+					"command": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"name",
+					"feed",
+					"pattern"
+				]
+			}
+		}
+	},
+	"required": [
+		"feeds",
+		"subscriptions"
+	]
+}
