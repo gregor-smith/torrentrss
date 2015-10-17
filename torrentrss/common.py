@@ -135,8 +135,7 @@ class Command:
                                           instance_name=self.name)
 
     def __repr__(self):
-        return '{}(name={!r}, arguments={})'.format(type(self.__name__),
-                                                      self.name, self.arguments)
+        return '{}(name={!r}, arguments={})'.format(type(self).__name__, self.name, self.arguments)
 
     @staticmethod
     def identify_path_argument_index(args):
@@ -166,24 +165,43 @@ class Feed:
 
     def __repr__(self):
         return ('{}(name={!r}, url={!r}, interval_minutes={}, subscriptions={})'
-                .format(type(self.__name__), self.name, self.url,
+                .format(type(self).__name__, self.name, self.url,
                         self.interval_minutes, self.subscriptions.keys()))
 
     def fetch(self):
-        return feedparser.parse(self.url)
+        rss = feedparser.parse(self.url)
+        if rss.bozo:
+            self.logger.critical('Error parsing {!r}', self.url)
+            raise rss.bozo_exception
+        self.logger.info('Parsed {!r}', self.url)
+        return rss
 
     def matching_subscriptions(self):
         rss = self.fetch()
         for subscription in self.subscriptions.values():
-            for entry in rss.entries:
+            self.logger.debug('Checking entries against subscription {!r}', subscription.name)
+            for index, entry in enumerate(rss.entries):
                 match = subscription.regex.search(entry.title)
                 if match:
+                    self.logger.info('Entry {} titled {!r} matches subscription {!r}',
+                                     index, entry.title, subscription.name)
                     number = pkg_resources.parse_version(match.group('number'))
                     if number > subscription.number:
+                        self.logger.info('Entry {} titled {!r} has greater number than '
+                                         'subscription {!r}; yielded: {} > {}', index, entry.title,
+                                         subscription.name, number, subscription.number)
                         yield subscription, entry, number
+                    else:
+                        self.logger.info('Entry {} titled {!r} matches but has smaller number '
+                                         'than subscription {!r}; skipped: {} < {}',
+                                         index, entry.title, subscription.name,
+                                         number, subscription.number)
+                else:
+                    self.logger.debug('Entry {} titled {!r} does not match subscription {!r}',
+                                      index, entry.title, subscription.name)
 
 class Subscription:
-    forbidden_characters_pattern = re.compile(r'[\\/:\*\?"<>\|]')
+    forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
 
     def __init__(self, name, feed, regex, directory=DEFAULT_DIRECTORY, command=DEFAULT_COMMAND):
         self.name = name
@@ -198,9 +216,9 @@ class Subscription:
                                           instance_name=self.name)
 
     def __repr__(self):
-        return ('{}(name={!r}, feed={!r}, pattern={}, directory={}, command={}, number={})'
-                .format(type(self.__name__), self.feed.name, self.regex.pattern,
-                        self.directory, self.command.name, self.number))
+        return ('{}(name={!r}, feed={!r}, pattern={}, directory={}, command={!r}, number={})'
+                .format(type(self).__name__, self.name, self.feed.name,
+                        self.regex.pattern, self.directory, self.command, self.number))
 
     @property
     def number(self):
@@ -221,7 +239,7 @@ class Subscription:
         self._number = new_number
 
     def torrent_path_for(self, title):
-        fixed_title = re.sub(self.forbidden_characters_pattern, '-', title)
+        fixed_title = re.sub(self.forbidden_characters_regex, '-', title)
         return os.path.join(self.directory, fixed_title+'.torrent')
 
     def download(self, rss_entry):

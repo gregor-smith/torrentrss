@@ -27,5 +27,4 @@ def main(config_path, file_logging_level, console_logging_level):
             raise click.Abort('No config file found at {!r}. See the example in the package.'
                               .format(common.CONFIG_PATH)) from error
 
-    log.info('starting loop')
-    #loop.run(config)
+    loop.run(config)

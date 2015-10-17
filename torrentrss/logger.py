@@ -6,7 +6,7 @@ import datetime
 import contextlib
 
 PATH_FORMAT = 'logs/{0:%Y}/{0:%m}/{0:%Y-%m-%d_%H-%M-%S}.log'
-MESSAGE_FORMAT = '[{asctime} {name} {module}:{lineno}] {message}'
+MESSAGE_FORMAT = '[{asctime} {levelname} {threadName} {name} {module} line:{lineno}]\n{message}'
 NAME_FORMAT = '{module}.{type}'
 
 ROOT_NAME = 'torrentrss'
