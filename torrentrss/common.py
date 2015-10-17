@@ -1,7 +1,6 @@
 import os
 import re
 import json
-import logging
 import datetime
 import tempfile
 import subprocess
@@ -12,7 +11,9 @@ import feedparser
 import jsonschema
 import pkg_resources
 
-NAME = 'torrentrss'
+from . import logger
+
+NAME = logger.ROOT_NAME
 VERSION = __version__ = '0.1'
 
 CONFIG_DIR = click.get_app_dir(NAME)
@@ -24,58 +25,32 @@ DEFAULT_COMMAND = click.launch
 PATH_ARGUMENT = '$PATH'
 NUMBER_REGEX_GROUP = 'number'
 
-LOG_PATH_PATTERN = os.path.join(CONFIG_DIR, 'logs/{0:%Y}/{0:%m}/{0:%Y-%m-%d_%H-%M-%S}.log')
-LOG_MESSAGE_FORMAT = '{asctime} {levelname} {module}.{funcName}: {message}'
-
-def get_log_path():
-    path = LOG_PATH_PATTERN.format(datetime.datetime.now())
-    directory = os.path.dirname(path)
-    os.makedirs(directory, exist_ok=True)
-    return path
-
-def create_logger(file_level, console_level):
-    logger = logging.getLogger(NAME)
-    logger.setLevel(logging.DEBUG)
-
-    file_handler = logging.FileHandler(get_log_path())
-    file_handler.setLevel(file_level)
-
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(console_level)
-
-    formatter = logging.Formatter(LOG_MESSAGE_FORMAT, style='{')
-    file_handler.setFormatter(formatter)
-    console_handler.setFormatter(formatter)
-
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-
-    return logger
-
 class ConfigError(Exception):
     pass
 
 class Config(dict):
-    def __init__(self, path=CONFIG_PATH):
+    def __init__(self):
         super().__init__()
-        self.path = path
-        self.schema = self.get_schema()
+        self.logger = logger.create_child(module_name=__name__, type_name=type(self).__name__)
 
-    @staticmethod
-    def get_schema():
+    def schema(self):
         bytes_ = pkg_resources.resource_string(__name__, 'config_schema.json')
-        string = str(bytes_, encoding='utf8')
+        string = str(bytes_, encoding='utf-8')
         return json.loads(string)
 
-    def load(self, path=None):
-        with open(path or self.path) as file:
+    def load(self, path=CONFIG_PATH):
+        self.logger.info('path: {!r}', path)
+
+        with open(path) as file:
             self.json_dict = json.load(file)
-        jsonschema.validate(self.json_dict, self.schema)
+        jsonschema.validate(self.json_dict, self.schema())
 
         self._update_simple_object('feeds', Feed)
         self._update_directories()
         self._update_simple_object('commands', Command)
         self._update_subscriptions()
+
+        self.path = path
 
     def _update_simple_object(self, key, new_type):
         self[key] = {dct['name']: new_type(**dct) for dct in self.json_dict[key]}
@@ -196,7 +171,7 @@ class Subscription:
         self.directory = directory
         self.command = command
 
-        self.number_file_path = os.path.join(CONFIG_DIR, self.name+'.state')
+        self.number_file_path = os.path.join(CONFIG_DIR, self.name+'.number')
 
     @property
     def number(self):

@@ -1,5 +1,4 @@
 import time
-import logging
 import concurrent.futures
 
 from . import common
@@ -17,3 +16,4 @@ def run(config):
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = [executor.submit(worker, feed) for feed in config['feeds'].values()]
         concurrent.futures.wait(futures)
+
