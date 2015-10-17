@@ -39,7 +39,7 @@ class Config(dict):
         return json.loads(string)
 
     def load(self, path=CONFIG_PATH):
-        self.logger.info('path: {!r}', path)
+        self.logger.debug('Config path: {!r}', path)
 
         with open(path) as file:
             self.json_dict = json.load(file)
@@ -62,10 +62,14 @@ class Config(dict):
             path = directory['path']
             if os.path.exists(path):
                 if not os.path.isdir(path):
+                    self.logger.debug("'Directory' {!r} exists but is not in fact a directory: {}", name, path)
                     raise NotADirectoryError(path)
+                self.logger.debug('Directory {!r} exists: {}', name, path)
             else:
                 os.makedirs(path)
+                self.logger.info('Directory did not exist and was created: {}', path)
             directories[name] = path
+            self.logger.debug('Directories key {!r} = {}', name, path)
 
     def _get_from_other_dict(self, root_dict_key, instance_key,
                              error_subscription_name, error_property_name):
@@ -87,6 +91,7 @@ class Config(dict):
                                              error_subscription_name, property_name)
 
     def _update_subscriptions(self):
+        #TODO: more logging here
         self['subscriptions'] = subscriptions = {}
         for subscription in self.json_dict['subscriptions']:
             name = subscription['name']
@@ -95,15 +100,15 @@ class Config(dict):
                                              error_subscription_name=name,
                                              error_property_name='feed')
 
-            pattern_string = subscription['pattern']
+            pattern = subscription['pattern']
             try:
-                pattern = re.compile(pattern_string)
+                regex = re.compile(pattern)
             except re.error as error:
                 raise ConfigError('Subscription {!r} pattern {!r} not valid regular expression: {}'
-                                  .format(name, pattern_string, ' - '.join(error.args))) from error
-            if NUMBER_REGEX_GROUP not in pattern.groupindex:
+                                  .format(name, pattern, ' - '.join(error.args))) from error
+            if NUMBER_REGEX_GROUP not in regex.groupindex:
                 raise ConfigError('Subscription {!r} pattern {!r} has no {!r} group'
-                                  .format(name, pattern_string, NUMBER_REGEX_GROUP))
+                                  .format(name, pattern, NUMBER_REGEX_GROUP))
 
             directory = self._get_from_other_dict_with_default(subscription,
                                                                property_name='directory',
@@ -117,13 +122,21 @@ class Config(dict):
                                                              default=DEFAULT_COMMAND,
                                                              error_subscription_name=name)
 
-            subscriptions[name] = feed.subscriptions[name] = Subscription(name, feed, pattern,
-                                                                          directory, command)
+            subscription = Subscription(name, feed, regex, directory, command)
+            subscriptions[name] = feed.subscriptions[name] = subscription
+            self.logger.debug('Subscriptions key {!r} = {!r}', name, subscription)
 
 class Command:
     def __init__(self, name, arguments):
         self.name = name
         self.arguments = arguments
+
+        self.logger = logger.create_child(module_name=__name__, type_name=type(self).__name__,
+                                          instance_name=self.name)
+
+    def __repr__(self):
+        return '{}(name={!r}, arguments={})'.format(type(self.__name__),
+                                                      self.name, self.arguments)
 
     @staticmethod
     def identify_path_argument_index(args):
@@ -148,6 +161,14 @@ class Feed:
         self.interval_minutes = interval_minutes
         self.subscriptions = {}
 
+        self.logger = logger.create_child(module_name=__name__, type_name=type(self).__name__,
+                                          instance_name=self.name)
+
+    def __repr__(self):
+        return ('{}(name={!r}, url={!r}, interval_minutes={}, subscriptions={})'
+                .format(type(self.__name__), self.name, self.url,
+                        self.interval_minutes, self.subscriptions.keys()))
+
     def fetch(self):
         return feedparser.parse(self.url)
 
@@ -155,7 +176,7 @@ class Feed:
         rss = self.fetch()
         for subscription in self.subscriptions.values():
             for entry in rss.entries:
-                match = subscription.pattern.search(entry.title)
+                match = subscription.regex.search(entry.title)
                 if match:
                     number = pkg_resources.parse_version(match.group('number'))
                     if number > subscription.number:
@@ -164,14 +185,22 @@ class Feed:
 class Subscription:
     forbidden_characters_pattern = re.compile(r'[\\/:\*\?"<>\|]')
 
-    def __init__(self, name, feed, pattern, directory=DEFAULT_DIRECTORY, command=DEFAULT_COMMAND):
+    def __init__(self, name, feed, regex, directory=DEFAULT_DIRECTORY, command=DEFAULT_COMMAND):
         self.name = name
         self.feed = feed
-        self.pattern = pattern
+        self.regex = regex
         self.directory = directory
         self.command = command
 
         self.number_file_path = os.path.join(CONFIG_DIR, self.name+'.number')
+
+        self.logger = logger.create_child(module_name=__name__, type_name=type(self).__name__,
+                                          instance_name=self.name)
+
+    def __repr__(self):
+        return ('{}(name={!r}, feed={!r}, pattern={}, directory={}, command={}, number={})'
+                .format(type(self.__name__), self.feed.name, self.regex.pattern,
+                        self.directory, self.command.name, self.number))
 
     @property
     def number(self):

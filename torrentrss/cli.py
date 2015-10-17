@@ -13,7 +13,7 @@ def logging_level_from_string(context, parameter, value):
 @click.option('--config-path', type=click.Path(exists=True, dir_okay=False))
 @click.option('--file-logging-level', type=logging_level_choice_type, default='DEBUG',
               callback=logging_level_from_string)
-@click.option('--console-logging-level', type=logging_level_choice_type, default='WARNING',
+@click.option('--console-logging-level', type=logging_level_choice_type, default='INFO',
               callback=logging_level_from_string)
 @click.version_option(common.VERSION)
 def main(config_path, file_logging_level, console_logging_level):
@@ -28,4 +28,4 @@ def main(config_path, file_logging_level, console_logging_level):
                               .format(common.CONFIG_PATH)) from error
 
     log.info('starting loop')
-    loop.run(config)
+    #loop.run(config)

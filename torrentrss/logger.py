@@ -1,4 +1,5 @@
 import os
+import pprint
 import inspect
 import logging
 import datetime
@@ -10,6 +11,8 @@ NAME_FORMAT = '{module}.{type}'
 
 ROOT_NAME = 'torrentrss'
 
+pprinter = pprint.PrettyPrinter(width=100)
+
 # from https://stackoverflow.com/a/24683360
 class BraceMessage:
     def __init__(self, fmt, args, kwargs):
@@ -18,7 +21,9 @@ class BraceMessage:
         self.kwargs = kwargs
 
     def __str__(self):
-        return str(self.fmt).format(*self.args, **self.kwargs)
+        if isinstance(self.fmt, str):
+            return self.fmt.format(*self.args, **self.kwargs)
+        return pprinter.pformat(self.fmt)
 
 # from https://stackoverflow.com/a/24683360
 class StyleAdapter(logging.LoggerAdapter):
@@ -38,8 +43,8 @@ class StyleAdapter(logging.LoggerAdapter):
     def catch_exception(self):
         try:
             yield
-        except Exception as error:
-            self.exception(type(error))
+        except Exception as exception:
+            self.exception(type(exception))
             raise
 
 def get_path(config_dir, path_format=PATH_FORMAT):
@@ -68,7 +73,9 @@ def create(config_dir, file_level, console_level):
 
     return StyleAdapter(logger)
 
-def create_child(module_name, type_name, name_format=NAME_FORMAT):
+def create_child(module_name, type_name, instance_name=None, name_format=NAME_FORMAT):
     name = name_format.format(module=module_name, type=type_name)
+    if instance_name is not None:
+        name += '({!r})'.format(instance_name)
     logger = logging.getLogger(name)
     return StyleAdapter(logger)
