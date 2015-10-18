@@ -8,9 +8,12 @@ def worker(feed):
         while True:
             for subscription, entry, number in feed.matching_subscriptions():
                 torrent_path = subscription.download(entry)
+                feed.logger.info('{!r} downloaded to {!r}', entry.link, torrent_path)
                 subscription.command(torrent_path)
+                feed.logger.info('{!r} launched with {!r}', torrent_path, subscription.command)
                 subscription.number = number
 
+            feed.logger.info('Sleeping for {} minutes', feed.interval_minutes)
             time.sleep(feed.interval_minutes*60)
 
 def run(config):
@@ -27,7 +30,7 @@ def run(config):
 
             exception = future.exception()
             if exception is None:
-                feed.logger.critical('Future somehow finished without raising'
+                feed.logger.critical('Future somehow finished without raising '
                                      "an exception, which shouldn't be possible")
             else:
                 feed.logger.critical('Future encountered an exception')

@@ -13,7 +13,7 @@ ROOT_NAME = 'torrentrss'
 
 pprinter = pprint.PrettyPrinter(width=100)
 
-# from https://stackoverflow.com/a/24683360
+# from https://stackoverflow.com/a/24683360, '__str__' modified
 class BraceMessage:
     def __init__(self, fmt, args, kwargs):
         self.fmt = fmt
@@ -25,7 +25,7 @@ class BraceMessage:
             return self.fmt.format(*self.args, **self.kwargs)
         return pprinter.pformat(self.fmt)
 
-# from https://stackoverflow.com/a/24683360
+# from https://stackoverflow.com/a/24683360, 'process' modified and 'catch_exception' new
 class StyleAdapter(logging.LoggerAdapter):
     def __init__(self, logger):
         self.logger = logger

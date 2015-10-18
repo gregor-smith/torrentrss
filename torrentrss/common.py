@@ -62,14 +62,15 @@ class Config(dict):
             path = directory['path']
             if os.path.exists(path):
                 if not os.path.isdir(path):
-                    self.logger.debug("'Directory' {!r} exists but is not in fact a directory: {}", name, path)
+                    self.logger.debug("'Directory' {!r} exists but is not "
+                                      'in fact a directory: {!r}', name, path)
                     raise NotADirectoryError(path)
-                self.logger.debug('Directory {!r} exists: {}', name, path)
+                self.logger.debug('Directory {!r} exists: {!r}', name, path)
             else:
                 os.makedirs(path)
-                self.logger.info('Directory did not exist and was created: {}', path)
+                self.logger.info('Directory did not exist and was created: {!r}', path)
             directories[name] = path
-            self.logger.debug('Directories key {!r} = {}', name, path)
+            self.logger.debug('Directories key {!r} = {!r}', name, path)
 
     def _get_from_other_dict(self, root_dict_key, instance_key,
                              error_subscription_name, error_property_name):
@@ -202,6 +203,7 @@ class Feed:
 
 class Subscription:
     forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
+    zero_version_number = pkg_resources.parse_version('0')
 
     def __init__(self, name, feed, regex, directory=DEFAULT_DIRECTORY, command=DEFAULT_COMMAND):
         self.name = name
@@ -216,35 +218,51 @@ class Subscription:
                                           instance_name=self.name)
 
     def __repr__(self):
-        return ('{}(name={!r}, feed={!r}, pattern={}, directory={}, command={!r}, number={})'
+        return ('{}(name={!r}, feed={!r}, pattern={!r}, directory={!r}, command={!r}, number={})'
                 .format(type(self).__name__, self.name, self.feed.name,
                         self.regex.pattern, self.directory, self.command, self.number))
 
     @property
     def number(self):
         try:
-            return self._number
+            number = self._number
         except AttributeError:
             try:
                 with open(self.number_file_path) as file:
-                    self._number = pkg_resources.parse_version(file.readline())
+                    line = file.readline()
+                number = self._number = pkg_resources.parse_version(line)
+                self.logger.info('Parsed {!r}; returning {}', self.number_file_path, number)
             except FileNotFoundError:
-                self._number = pkg_resources.parse_version('0')
-            return self._number
+                number = self._number = self.zero_version_number
+                self.logger.info('No number file found at {!r}; returning {}',
+                                 self.number_file_path, self.zero_version_number)
+        return number
 
     @number.setter
     def number(self, new_number):
+        self._number = new_number
         with open(self.number_file_path, 'w') as file:
             file.write(str(new_number))
-        self._number = new_number
+        self.logger.info('Number {} written to file {!r}',
+                         new_number, self.number_file_path)
 
     def torrent_path_for(self, title):
         fixed_title = re.sub(self.forbidden_characters_regex, '-', title)
-        return os.path.join(self.directory, fixed_title+'.torrent')
+        if fixed_title != title:
+            self.logger.info('Title contained invalid characters: {!r} -> {!r}',
+                             title, fixed_title)
+        path = os.path.join(self.directory, fixed_title+'.torrent')
+        self.logger.debug('Path for {!r}: {!r}', title, path)
+        return path
 
     def download(self, rss_entry):
+        self.logger.debug('Sending GET request: {}', rss_entry.link)
         response = requests.get(rss_entry.link)
+        self.logger.debug("Response status code is {}, 'ok' is {}",
+                          response.status_code, response.ok)
+        response.raise_for_status()
         path = self.torrent_path_for(rss_entry.title)
         with open(path, 'wb') as file:
             file.write(response.content)
+        self.logger.debug('Wrote response content to {!r}', path)
         return path
