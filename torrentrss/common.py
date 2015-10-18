@@ -184,21 +184,21 @@ class Feed:
             for index, entry in enumerate(rss.entries):
                 match = subscription.regex.search(entry.title)
                 if match:
-                    self.logger.info('Entry {} titled {!r} matches subscription {!r}',
-                                     index, entry.title, subscription.name)
                     number = pkg_resources.parse_version(match.group('number'))
                     if number > subscription.number:
-                        self.logger.info('Entry {} titled {!r} has greater number than '
+                        self.logger.info('MATCH: Entry {} titled {!r} has greater number than '
                                          'subscription {!r}; yielded: {} > {}', index, entry.title,
                                          subscription.name, number, subscription.number)
                         yield subscription, entry, number
                     else:
-                        self.logger.info('Entry {} titled {!r} matches but has smaller number '
-                                         'than subscription {!r}; skipped: {} < {}',
-                                         index, entry.title, subscription.name,
-                                         number, subscription.number)
+                        self.logger.debug('NO MATCH: Entry {} titled {!r} matches '
+                                          'but number is smaller than or equal to that '
+                                          'of subscription {!r}; skipped: {} <= {}',
+                                          index, entry.title, subscription.name,
+                                          number, subscription.number)
                 else:
-                    self.logger.debug('Entry {} titled {!r} does not match subscription {!r}',
+                    self.logger.debug('NO MATCH: Entry {} titled {!r} '
+                                      'does not match subscription {!r}',
                                       index, entry.title, subscription.name)
 
 class Subscription:
