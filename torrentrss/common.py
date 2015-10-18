@@ -161,6 +161,8 @@ class Feed:
         self.interval_minutes = interval_minutes
         self.subscriptions = {}
 
+        #TODO: separate file handlers for each feed's logger,
+        #      since currently the log file's a huge clusterfuck
         self.logger = logger.create_child(module_name=__name__, type_name=type(self).__name__,
                                           instance_name=self.name)
 
@@ -178,6 +180,8 @@ class Feed:
         return rss
 
     def matching_subscriptions(self):
+        #TODO: Record which entries have been checked before
+        #      to avoid needlessly checking them again every time.
         rss = self.fetch()
         for subscription in self.subscriptions.values():
             self.logger.debug('Checking entries against subscription {!r}', subscription.name)

@@ -1,2 +1,2 @@
-from . import loop, cli
+from . import loop, cli, logger
 from .common import *
