@@ -14,14 +14,16 @@ import pkg_resources
 from . import logger
 
 NAME = logger.ROOT_NAME
-VERSION = __version__ = '0.1'
+VERSION = __version__ = '0.1.1'
 
 CONFIG_DIR = click.get_app_dir(NAME)
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
 
 DEFAULT_FEED_INTERVAL_MINUTES = 60
 DEFAULT_DIRECTORY = tempfile.gettempdir()
-DEFAULT_COMMAND = click.launch
+# click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
+# hence os.startfile is preferred for that platform.
+DEFAULT_COMMAND = os.startfile if os.name == 'nt' else click.launch
 PATH_ARGUMENT = '$PATH'
 NUMBER_REGEX_GROUP = 'number'
 
