@@ -14,7 +14,7 @@ import pkg_resources
 from . import logger
 
 NAME = logger.ROOT_NAME
-VERSION = __version__ = '0.1.1'
+VERSION = __version__ = '0.1.2'
 
 CONFIG_DIR = click.get_app_dir(NAME)
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')

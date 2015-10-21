@@ -6,12 +6,22 @@ from . import common
 def worker(feed):
     with feed.logger.catch_exception():
         while True:
-            for subscription, entry, number in feed.matching_subscriptions():
+            # List is called here as otherwise subscription.number would be updated during the
+            # loop before being checked by the next iteration of feed.matching_subscriptions,
+            # so if a subscription's number was originally 2 and there were entries with 4 and 3,
+            # 4 would become the subscription's number, and because 4 > 3, 3 would be skipped.
+            # Calling list first checks all entries against the subscription's original number,
+            # avoiding this problem. The alternatives were to update numbers in another loop
+            # afterwards, or to call reversed first on rss.entries in feed.matching_subscriptions.
+            # The latter seems like an ok workaround at first, since it would yield 3 before 4,
+            # but if 4 were added to the rss before 3 for some reason, it would still break.
+            for subscription, entry, number in list(feed.matching_subscriptions()):
                 torrent_path = subscription.download(entry)
                 feed.logger.info('{!r} downloaded to {!r}', entry.link, torrent_path)
                 subscription.command(torrent_path)
                 feed.logger.info('{!r} launched with {!r}', torrent_path, subscription.command)
-                subscription.number = number
+                if number > subscription.number:
+                    subscription.number = number
 
             feed.logger.info('Sleeping for {} minutes', feed.interval_minutes)
             time.sleep(feed.interval_minutes*60)
