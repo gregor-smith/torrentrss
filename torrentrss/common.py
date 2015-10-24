@@ -14,7 +14,7 @@ import pkg_resources
 from . import logger
 
 NAME = logger.ROOT_NAME
-VERSION = __version__ = '0.1.2'
+VERSION = __version__ = '0.1.3'
 
 CONFIG_DIR = click.get_app_dir(NAME)
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
@@ -26,6 +26,7 @@ DEFAULT_DIRECTORY = tempfile.gettempdir()
 DEFAULT_COMMAND = os.startfile if os.name == 'nt' else click.launch
 PATH_ARGUMENT = '$PATH'
 NUMBER_REGEX_GROUP = 'number'
+TORRENT_MIMETYPE = 'application/x-bittorrent'
 
 class ConfigError(Exception):
     pass
@@ -36,9 +37,9 @@ class Config(dict):
         self.logger = logger.create_child(module_name=__name__, type_name=type(self).__name__)
 
     def schema(self):
-        bytes_ = pkg_resources.resource_string(__name__, 'config_schema.json')
-        string = str(bytes_, encoding='utf-8')
-        return json.loads(string)
+        json_bytes = pkg_resources.resource_string(__name__, 'config_schema.json')
+        json_string = str(json_bytes, encoding='utf-8')
+        return json.loads(json_string)
 
     def load(self, path=CONFIG_PATH):
         self.logger.debug('Config path: {!r}', path)
@@ -252,6 +253,16 @@ class Subscription:
         self.logger.info('Number {} written to file {!r}',
                          new_number, self.number_file_path)
 
+    def identify_torrent_link(self, rss_entry):
+        for link in rss_entry.links:
+            if link.type == TORRENT_MIMETYPE:
+                self.logger.debug('First link of entry {!r} with mimetype {!r}: {}',
+                                  rss_entry.title, TORRENT_MIMETYPE, link.href)
+                return link.href
+        self.logger.info('Entry {!r} has no link with mimetype {!r}; returning first link: {}',
+                         rss_entry.title, TORRENT_MIMETYPE, rss_entry.link)
+        return rss_entry.link
+
     def torrent_path_for(self, title):
         fixed_title = re.sub(self.forbidden_characters_regex, '-', title)
         if fixed_title != title:
@@ -262,8 +273,9 @@ class Subscription:
         return path
 
     def download(self, rss_entry):
-        self.logger.debug('Sending GET request: {}', rss_entry.link)
-        response = requests.get(rss_entry.link)
+        link = self.identify_torrent_link(rss_entry)
+        self.logger.debug('Sending GET request: {}', link)
+        response = requests.get(link)
         self.logger.debug("Response status code is {}, 'ok' is {}",
                           response.status_code, response.ok)
         response.raise_for_status()
