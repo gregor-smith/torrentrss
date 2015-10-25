@@ -20,7 +20,7 @@ def worker(feed):
                 feed.logger.info('{!r} downloaded to {!r}', entry.link, torrent_path)
                 subscription.command(torrent_path)
                 feed.logger.info('{!r} launched with {!r}', torrent_path, subscription.command)
-                if number > subscription.number:
+                if subscription.has_lower_number_than(number):
                     subscription.number = number
 
             feed.logger.info('Sleeping for {} minutes', feed.interval_minutes)
@@ -45,4 +45,3 @@ def run(config):
             else:
                 # TODO: other options for when one future raises exception
                 feed.logger.critical('Future encountered an exception')
-

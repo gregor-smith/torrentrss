@@ -15,7 +15,7 @@ def logging_level_from_string(context, parameter, value):
               callback=logging_level_from_string)
 @click.option('--console-logging-level', type=logging_level_choice_type, default='INFO',
               callback=logging_level_from_string)
-@click.version_option(common.VERSION)
+@click.version_option()
 def main(config_path, file_logging_level, console_logging_level):
     log = logger.create(common.CONFIG_DIR, file_logging_level, console_logging_level)
 

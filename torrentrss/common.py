@@ -14,7 +14,6 @@ import pkg_resources
 from . import logger
 
 NAME = logger.ROOT_NAME
-VERSION = __version__ = '0.1.3'
 
 CONFIG_DIR = click.get_app_dir(NAME)
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
@@ -94,6 +93,8 @@ class Config(dict):
                                          error_subscription_name, property_name)
 
     def _update_subscriptions(self):
+        user_agent = self.json_dict.get('user agent')
+
         #TODO: more logging here
         self['subscriptions'] = subscriptions = {}
         for subscription in self.json_dict['subscriptions']:
@@ -125,7 +126,7 @@ class Config(dict):
                                                              default=DEFAULT_COMMAND,
                                                              error_subscription_name=name)
 
-            subscription = Subscription(name, feed, regex, directory, command)
+            subscription = Subscription(name, feed, regex, directory, command, user_agent)
             subscriptions[name] = feed.subscriptions[name] = subscription
             self.logger.debug('Subscriptions key {!r} = {!r}', name, subscription)
 
@@ -191,7 +192,7 @@ class Feed:
                 match = subscription.regex.search(entry.title)
                 if match:
                     number = pkg_resources.parse_version(match.group('number'))
-                    if subscription.number is None or number > subscription.number:
+                    if subscription.has_lower_number_than(number):
                         self.logger.info('MATCH: Entry {} titled {!r} has greater number than '
                                          'subscription {!r}; yielded: {} > {}', index, entry.title,
                                          subscription.name, number, subscription.number)
@@ -210,12 +211,14 @@ class Feed:
 class Subscription:
     forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
 
-    def __init__(self, name, feed, regex, directory=DEFAULT_DIRECTORY, command=DEFAULT_COMMAND):
+    def __init__(self, name, feed, regex, directory=DEFAULT_DIRECTORY,
+                 command=DEFAULT_COMMAND, user_agent=None):
         self.name = name
         self.feed = feed
         self.regex = regex
         self.directory = directory
         self.command = command
+        self.user_agent = user_agent
 
         self.number_file_path = os.path.join(CONFIG_DIR, self.name+'.number')
         self._number = None
@@ -249,6 +252,9 @@ class Subscription:
         self.logger.info('Number {} written to file {!r}',
                          new_number, self.number_file_path)
 
+    def has_lower_number_than(self, other_number):
+        return self.number is None or other_number > self.number
+
     def torrent_link_for(self, rss_entry):
         for link in rss_entry.links:
             if link.type == TORRENT_MIMETYPE:
@@ -270,11 +276,13 @@ class Subscription:
 
     def download(self, rss_entry):
         link = self.torrent_link_for(rss_entry)
-        self.logger.debug('Sending GET request: {}', link)
-        response = requests.get(link)
+        headers = {} if self.user_agent is None else {'User-Agent': self.user_agent}
+        self.logger.debug('Sending GET request to {!r} with headers {}', link, headers)
+        response = requests.get(link, headers=headers)
         self.logger.debug("Response status code is {}, 'ok' is {}",
                           response.status_code, response.ok)
         response.raise_for_status()
+
         path = self.torrent_path_for(rss_entry.title)
         with open(path, 'wb') as file:
             file.write(response.content)
