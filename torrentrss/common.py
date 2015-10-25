@@ -90,9 +90,8 @@ class Config(dict):
             instance_key = subscription_dict[property_name]
         except KeyError:
             return default
-        else:
-            return self._get_from_other_dict(root_dict_key, instance_key,
-                                             error_subscription_name, property_name)
+        return self._get_from_other_dict(root_dict_key, instance_key,
+                                         error_subscription_name, property_name)
 
     def _update_subscriptions(self):
         #TODO: more logging here
@@ -192,7 +191,7 @@ class Feed:
                 match = subscription.regex.search(entry.title)
                 if match:
                     number = pkg_resources.parse_version(match.group('number'))
-                    if number > subscription.number:
+                    if subscription.number is None or number > subscription.number:
                         self.logger.info('MATCH: Entry {} titled {!r} has greater number than '
                                          'subscription {!r}; yielded: {} > {}', index, entry.title,
                                          subscription.name, number, subscription.number)
@@ -210,7 +209,6 @@ class Feed:
 
 class Subscription:
     forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
-    zero_version_number = pkg_resources.parse_version('0')
 
     def __init__(self, name, feed, regex, directory=DEFAULT_DIRECTORY, command=DEFAULT_COMMAND):
         self.name = name
@@ -220,6 +218,7 @@ class Subscription:
         self.command = command
 
         self.number_file_path = os.path.join(CONFIG_DIR, self.name+'.number')
+        self._number = None
 
         self.logger = logger.create_child(module_name=__name__, type_name=type(self).__name__,
                                           instance_name=self.name)
@@ -231,19 +230,16 @@ class Subscription:
 
     @property
     def number(self):
-        try:
-            number = self._number
-        except AttributeError:
+        if self._number is None:
             try:
                 with open(self.number_file_path) as file:
                     line = file.readline()
-                number = self._number = pkg_resources.parse_version(line)
-                self.logger.info('Parsed {!r}; returning {}', self.number_file_path, number)
+                self._number = pkg_resources.parse_version(line)
+                self.logger.info('Parsed {!r}; returning {}', self.number_file_path, self._number)
             except FileNotFoundError:
-                number = self._number = self.zero_version_number
-                self.logger.info('No number file found at {!r}; returning {}',
-                                 self.number_file_path, self.zero_version_number)
-        return number
+                self.logger.info('No number file found at {!r}; returning None',
+                                 self.number_file_path)
+        return self._number
 
     @number.setter
     def number(self, new_number):
@@ -253,7 +249,7 @@ class Subscription:
         self.logger.info('Number {} written to file {!r}',
                          new_number, self.number_file_path)
 
-    def identify_torrent_link(self, rss_entry):
+    def torrent_link_for(self, rss_entry):
         for link in rss_entry.links:
             if link.type == TORRENT_MIMETYPE:
                 self.logger.debug('First link of entry {!r} with mimetype {!r}: {}',
@@ -273,7 +269,7 @@ class Subscription:
         return path
 
     def download(self, rss_entry):
-        link = self.identify_torrent_link(rss_entry)
+        link = self.torrent_link_for(rss_entry)
         self.logger.debug('Sending GET request: {}', link)
         response = requests.get(link)
         self.logger.debug("Response status code is {}, 'ok' is {}",

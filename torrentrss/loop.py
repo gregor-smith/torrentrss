@@ -43,8 +43,6 @@ def run(config):
                 feed.logger.critical('Future somehow finished without raising '
                                      "an exception, which shouldn't be possible")
             else:
-                feed.logger.critical('Future encountered an exception')
                 # TODO: other options for when one future raises exception
-                with feed.logger.catch_exception():
-                    raise exception
+                feed.logger.critical('Future encountered an exception')
 
