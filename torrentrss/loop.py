@@ -3,9 +3,11 @@ import concurrent.futures
 
 from . import common
 
+exception_log_message = "Future encountered {} exception. 'on_exception_action' is {!r}."
+
 def worker(feed):
-    with feed.logger.catch_exception():
-        while True:
+    while True:
+        try:
             # List is called here as otherwise subscription.number would be updated during the
             # loop before being checked by the next iteration of feed.matching_subscriptions,
             # so if a subscription's number was originally 2 and there were entries with 4 and 3,
@@ -22,13 +24,18 @@ def worker(feed):
                 feed.logger.info('{!r} launched with {!r}', torrent_path, subscription.command)
                 if subscription.has_lower_number_than(number):
                     subscription.number = number
+        except Exception as exception:
+            #TODO: notifications when exception is encountered, as currently the only way to find
+            #      out is to read the log file or notice the process has disappeared
+            if feed.on_exception_action != 'continue':
+                raise
+            feed.logger.exception(exception_log_message+'Continuing sleep loop.',
+                                  type(exception), feed.on_exception_action)
 
-            feed.logger.info('Sleeping for {} minutes', feed.interval_minutes)
-            time.sleep(feed.interval_minutes*60)
+        feed.logger.info('Sleeping for {} minutes', feed.interval_minutes)
+        time.sleep(feed.interval_minutes*60)
 
-def run(config):
-    feeds = config['feeds'].values()
-
+def run(feeds):
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(feeds)) as executor:
         futures = {}
         for feed in feeds:
@@ -43,5 +50,12 @@ def run(config):
                 feed.logger.critical('Future somehow finished without raising '
                                      "an exception, which shouldn't be possible")
             else:
-                # TODO: other options for when one future raises exception
-                feed.logger.critical('Future encountered an exception')
+                if feed.on_exception_action == 'stop_all_feeds':
+                    message = exception_log_message + 'Exiting.'
+                    reraise = True
+                elif feed.on_exception_action == 'stop_this_feed':
+                    message = exception_log_message + 'Stopping this future only.'
+                    reraise = False
+                with feed.logger.catch_exception(message, type(exception),
+                                                 feed.on_exception_action, reraise=reraise):
+                    raise exception

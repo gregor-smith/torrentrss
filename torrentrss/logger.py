@@ -40,12 +40,13 @@ class StyleAdapter(logging.LoggerAdapter):
         return msg, {key: kwargs[key] for key in log_signature.parameters.keys() if key in kwargs}
 
     @contextlib.contextmanager
-    def catch_exception(self):
+    def catch_exception(self, *message, reraise=True):
         try:
             yield
         except Exception as exception:
-            self.exception(type(exception))
-            raise
+            self.exception(*message) if message else self.exception(type(exception))
+            if reraise:
+                raise
 
 def get_path(config_dir, path_format=PATH_FORMAT):
     path = os.path.join(config_dir, path_format)

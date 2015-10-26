@@ -14,7 +14,6 @@ import pkg_resources
 from . import logger
 
 NAME = logger.ROOT_NAME
-
 CONFIG_DIR = click.get_app_dir(NAME)
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
 
@@ -23,6 +22,8 @@ DEFAULT_DIRECTORY = tempfile.gettempdir()
 # click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
 # hence os.startfile is preferred for that platform.
 DEFAULT_COMMAND = os.startfile if os.name == 'nt' else click.launch
+ON_FEED_EXCEPTION_ACTIONS = {'stop_this_feed', 'stop_all_feeds', 'continue'}
+DEFAULT_ON_FEED_EXCEPTION_ACTION = 'continue'
 PATH_ARGUMENT = '$PATH'
 NUMBER_REGEX_GROUP = 'number'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
@@ -93,7 +94,7 @@ class Config(dict):
                                          error_subscription_name, property_name)
 
     def _update_subscriptions(self):
-        user_agent = self.json_dict.get('user agent')
+        user_agent = self.json_dict.get('user_agent')
 
         #TODO: more logging here
         self['subscriptions'] = subscriptions = {}
@@ -158,12 +159,14 @@ class Command:
         return subprocess.Popen(args)
 
 class Feed:
-    def __init__(self, name, url, interval_minutes=DEFAULT_FEED_INTERVAL_MINUTES):
+    def __init__(self, name, url, interval_minutes=DEFAULT_FEED_INTERVAL_MINUTES,
+                 on_exception_action=DEFAULT_ON_FEED_EXCEPTION_ACTION):
         self.name = name
         self.url = url
         self.interval_minutes = interval_minutes
-        self.subscriptions = {}
+        self.on_exception_action = on_exception_action
 
+        self.subscriptions = {}
         #TODO: separate file handlers for each feed's logger,
         #      since currently the log file's a huge clusterfuck
         self.logger = logger.create_child(module_name=__name__, type_name=type(self).__name__,
@@ -253,7 +256,7 @@ class Subscription:
                          new_number, self.number_file_path)
 
     def has_lower_number_than(self, other_number):
-        return self.number is None or other_number > self.number
+        return self.number is None or self.number < other_number
 
     def torrent_link_for(self, rss_entry):
         for link in rss_entry.links:

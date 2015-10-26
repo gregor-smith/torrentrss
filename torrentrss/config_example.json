@@ -1,14 +1,16 @@
 {
-    "user agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:41.0) Gecko/20100101 Firefox/41.0",
+    "user_agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:41.0) Gecko/20100101 Firefox/41.0",
     "feeds": [
         {
             "name": "Commie",
-            "url": "http://www.nyaa.se/?page=rss&user=76430"
+            "url": "http://www.nyaa.se/?page=rss&user=76430",
+            "on_exception_action": "stop_all_feeds"
         },
         {
             "name": "HorribleSubs",
             "url": "http://www.nyaa.se/?page=rss&user=64513",
-            "interval_minutes": 30
+            "interval_minutes": 30,
+            "on_exception_action": "continue"
         }
     ],
     "directories": [

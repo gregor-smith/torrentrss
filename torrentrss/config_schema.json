@@ -2,7 +2,7 @@
 	"$schema": "http://json-schema.org/draft-04/schema#",
 	"type": "object",
 	"properties": {
-		"user agent": {
+		"user_agent": {
 			"type": "string"
 		},
 		"feeds": {
@@ -16,9 +16,13 @@
 					"url": {
 						"type": "string"
 					},
-					"interval": {
+					"interval_minutes": {
 						"type": "integer",
 						"minimum": 1
+					},
+					"on_exception_action": {
+						"type": "string",
+						"pattern": "^(?:stop_this_feed|stop_all_feeds|continue)$"
 					}
 				},
 				"required": [
