@@ -29,7 +29,7 @@ def worker(feed):
             #      out is to read the log file or notice the process has disappeared
             if feed.on_exception_action != 'continue':
                 raise
-            feed.logger.exception(exception_log_message+'Continuing sleep loop.',
+            feed.logger.exception(exception_log_message+'Continuing sleep loop',
                                   type(exception), feed.on_exception_action)
 
         feed.logger.info('Sleeping for {} minutes', feed.interval_minutes)
@@ -39,9 +39,12 @@ def run(feeds):
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(feeds)) as executor:
         futures = {}
         for feed in feeds:
-            future = executor.submit(worker, feed)
-            futures[future] = feed
-            feed.logger.info('Future created')
+            if feed.has_enabled_subscription():
+                future = executor.submit(worker, feed)
+                futures[future] = feed
+                feed.logger.info('Future created')
+            else:
+                feed.logger.info('No enabled subscriptions found')
         for future in concurrent.futures.as_completed(futures):
             feed = futures[future]
 
@@ -51,10 +54,10 @@ def run(feeds):
                                      "an exception, which shouldn't be possible")
             else:
                 if feed.on_exception_action == 'stop_all_feeds':
-                    message = exception_log_message + 'Exiting.'
+                    message = exception_log_message + 'Exiting'
                     reraise = True
                 elif feed.on_exception_action == 'stop_this_feed':
-                    message = exception_log_message + 'Stopping this future only.'
+                    message = exception_log_message + 'Stopping this future only'
                     reraise = False
                 with feed.logger.catch_exception(message, type(exception),
                                                  feed.on_exception_action, reraise=reraise):

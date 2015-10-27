@@ -24,6 +24,7 @@ DEFAULT_DIRECTORY = tempfile.gettempdir()
 DEFAULT_COMMAND = os.startfile if os.name == 'nt' else click.launch
 ON_FEED_EXCEPTION_ACTIONS = {'stop_this_feed', 'stop_all_feeds', 'continue'}
 DEFAULT_ON_FEED_EXCEPTION_ACTION = 'continue'
+DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = True
 PATH_ARGUMENT = '$PATH'
 NUMBER_REGEX_GROUP = 'number'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
@@ -127,9 +128,16 @@ class Config(dict):
                                                              default=DEFAULT_COMMAND,
                                                              error_subscription_name=name)
 
-            subscription = Subscription(name, feed, regex, directory, command, user_agent)
+            enabled = subscription.get('enabled', DEFAULT_SUBSCRIPTION_ENABLED)
+
+            subscription = Subscription(name, feed, regex, directory, command, user_agent, enabled)
             subscriptions[name] = feed.subscriptions[name] = subscription
             self.logger.debug('Subscriptions key {!r} = {!r}', name, subscription)
+
+    def enabled_feeds(self):
+        for feed in self['feeds'].values():
+            if feed.enabled:
+                yield feed
 
 class Command:
     def __init__(self, name, arguments):
@@ -160,11 +168,13 @@ class Command:
 
 class Feed:
     def __init__(self, name, url, interval_minutes=DEFAULT_FEED_INTERVAL_MINUTES,
-                 on_exception_action=DEFAULT_ON_FEED_EXCEPTION_ACTION):
+                 on_exception_action=DEFAULT_ON_FEED_EXCEPTION_ACTION,
+                 enabled=DEFAULT_FEED_ENABLED):
         self.name = name
         self.url = url
         self.interval_minutes = interval_minutes
         self.on_exception_action = on_exception_action
+        self.enabled = enabled
 
         self.subscriptions = {}
         #TODO: separate file handlers for each feed's logger,
@@ -185,11 +195,16 @@ class Feed:
         self.logger.info('Parsed {!r}', self.url)
         return rss
 
+    def enabled_subscriptions(self):
+        for subscription in self.subscriptions.values():
+            if subscription.enabled:
+                yield subscription
+
     def matching_subscriptions(self):
         #TODO: Record which entries have been checked before
         #      to avoid needlessly checking them again every time.
         rss = self.fetch()
-        for subscription in self.subscriptions.values():
+        for subscription in self.enabled_subscriptions():
             self.logger.debug('Checking entries against subscription {!r}', subscription.name)
             for index, entry in enumerate(rss.entries):
                 match = subscription.regex.search(entry.title)
@@ -211,17 +226,25 @@ class Feed:
                                       'does not match subscription {!r}',
                                       index, entry.title, subscription.name)
 
+    def has_enabled_subscription(self):
+        try:
+            next(self.enabled_subscriptions())
+            return True
+        except StopIteration:
+            return False
+
 class Subscription:
     forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
 
     def __init__(self, name, feed, regex, directory=DEFAULT_DIRECTORY,
-                 command=DEFAULT_COMMAND, user_agent=None):
+                 command=DEFAULT_COMMAND, user_agent=None, enabled=DEFAULT_SUBSCRIPTION_ENABLED):
         self.name = name
         self.feed = feed
         self.regex = regex
         self.directory = directory
         self.command = command
         self.user_agent = user_agent
+        self.enabled = enabled
 
         self.number_file_path = os.path.join(CONFIG_DIR, self.name+'.number')
         self._number = None
