@@ -1,5 +1,6 @@
 import time
 import shutil
+import pathlib
 import traceback
 import subprocess
 import concurrent.futures
@@ -12,9 +13,9 @@ else:
     qt = QtWidgets.QApplication([])
     HAS_PYQT5 = True
 
-HAS_LIBNOTIFY = shutil.which('notify-send') is not None
-
 from . import common
+
+HAS_LIBNOTIFY = shutil.which('notify-send') is not None
 
 EXCEPTION_LOG_MESSAGE = "Future encountered {} exception. 'on_exception_action' is {!r}."
 EXCEPTION_GUI_MESSAGE = 'Feed {!r} encountered an {} exception.'
@@ -25,18 +26,26 @@ EXCEPTION_ACTION_MESSAGES = {
     'continue': EXCEPTION_ACTION_MESSAGE_START + 'this feed will retry in {0.interval_minutes}m.'
 }
 
-def gui_error_message(feed, exception):
+def show_gui_error(feed, exception):
     log_path = feed.logger.current_file_path()
     text = EXCEPTION_GUI_MESSAGE.format(feed.name, type(exception))
     informative_text = EXCEPTION_ACTION_MESSAGES[feed.on_exception_action].format(feed)
     detailed_text = traceback.format_excs()
 
     if feed.on_exception_gui == 'qt5_messagebox':
-        pyqt5_error_message(log_path, text, informative_text, detailed_text)
+        if HAS_PYQT5:
+            show_error_as_pyqt5_messagebox(log_path, text, informative_text, detailed_text)
+        else:
+            feed.logger.warning("'on_exception_gui' is 'qt5_messagebox'"
+                                'but PyQt5 could not be imported.')
     elif feed.on_exception_action == 'libnotify':
-        notification_error_message(log_path, text, informative_text)
+        if HAS_LIBNOTIFY:
+            show_error_as_libnotify_notification(log_path, text, informative_text)
+        else:
+            feed.logger.warning("'on_exception_gui' is 'libnotify'"
+                                "but the 'notify-send' executable could not be found.")
 
-def pyqt5_error_message(log_path, text, informative_text, detailed_text):
+def show_error_as_pyqt5_messagebox(log_path, text, informative_text, detailed_text):
     messagebox = QtWidgets.QMessageBox()
     messagebox.setWindowTitle(common.NAME)
     messagebox.setText(text)
@@ -51,8 +60,10 @@ def pyqt5_error_message(log_path, text, informative_text, detailed_text):
     if messagebox.clickedButton() == open_button:
         common.launch_path(log_path)
 
-def notification_error_message(log_path, text, informative_text):
-    pass
+def show_error_as_libnotify_notification(log_path, text, informative_text):
+    path = pathlib.Path(log_path).as_uri()
+    message = '{} {} Click to open log file:\n{}'.format(text, informative_text, path)
+    subprocess.Popen(['notify-send', '--app-name', common.NAME, common.NAME, message])
 
 def worker(feed):
     while True:
