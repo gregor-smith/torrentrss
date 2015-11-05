@@ -21,7 +21,7 @@ DEFAULT_FEED_INTERVAL_MINUTES = 60
 DEFAULT_DIRECTORY = tempfile.gettempdir()
 # click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
 # hence os.startfile is preferred for that platform.
-DEFAULT_COMMAND = os.startfile if os.name == 'nt' else click.launch
+DEFAULT_COMMAND = launch_path = os.startfile if os.name == 'nt' else click.launch
 ON_FEED_EXCEPTION_ACTIONS = {'stop_this_feed', 'stop_all_feeds', 'continue'}
 DEFAULT_ON_FEED_EXCEPTION_ACTION = 'continue'
 DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = True

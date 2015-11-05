@@ -48,6 +48,12 @@ class StyleAdapter(logging.LoggerAdapter):
             if reraise:
                 raise
 
+    def current_file_path(self):
+        for handler in self.handlers:
+            if isinstance(handler, logging.FileHandler):
+                return handler.baseFilename
+        raise TypeError('No file handlers found')
+
 def get_path(config_dir, path_format=PATH_FORMAT):
     path = os.path.join(config_dir, path_format)
     path = path.format(datetime.datetime.now())

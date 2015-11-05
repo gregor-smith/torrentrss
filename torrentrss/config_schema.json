@@ -24,6 +24,10 @@
 						"type": "string",
 						"pattern": "^(?:stop_this_feed|stop_all_feeds|continue)$"
 					},
+					"on_exception_gui": {
+						"type": "string",
+						"pattern": "^(?:qt5_messagebox|libnotify)$"
+					},
 					"enabled": {
 						"type": "boolean"
 					}

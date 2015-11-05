@@ -1,9 +1,58 @@
 import time
+import shutil
+import traceback
+import subprocess
 import concurrent.futures
+
+try:
+    from PyQt5 import QtWidgets
+except ImportError:
+    HAS_PYQT5 = False
+else:
+    qt = QtWidgets.QApplication([])
+    HAS_PYQT5 = True
+
+HAS_LIBNOTIFY = shutil.which('notify-send') is not None
 
 from . import common
 
-exception_log_message = "Future encountered {} exception. 'on_exception_action' is {!r}."
+EXCEPTION_LOG_MESSAGE = "Future encountered {} exception. 'on_exception_action' is {!r}."
+EXCEPTION_GUI_MESSAGE = 'Feed {!r} encountered an {} exception.'
+EXCEPTION_ACTION_MESSAGE_START = "Since 'on_exception_action' is {0.on_exception_action!r}, "
+EXCEPTION_ACTION_MESSAGES = {
+    'stop_this_feed': EXCEPTION_ACTION_MESSAGE_START + "only this feed's future has stopped.",
+    'stop_all_feeds': EXCEPTION_ACTION_MESSAGE_START + "all feeds' futures will stop.",
+    'continue': EXCEPTION_ACTION_MESSAGE_START + 'this feed will retry in {0.interval_minutes}m.'
+}
+
+def gui_error_message(feed, exception):
+    log_path = feed.logger.current_file_path()
+    text = EXCEPTION_GUI_MESSAGE.format(feed.name, type(exception))
+    informative_text = EXCEPTION_ACTION_MESSAGES[feed.on_exception_action].format(feed)
+    detailed_text = traceback.format_excs()
+
+    if feed.on_exception_gui == 'qt5_messagebox':
+        pyqt5_error_message(log_path, text, informative_text, detailed_text)
+    elif feed.on_exception_action == 'libnotify':
+        notification_error_message(log_path, text, informative_text)
+
+def pyqt5_error_message(log_path, text, informative_text, detailed_text):
+    messagebox = QtWidgets.QMessageBox()
+    messagebox.setWindowTitle(common.NAME)
+    messagebox.setText(text)
+    messagebox.setInformativeText(informative_text)
+    messagebox.setDetailedText(detailed_text)
+
+    ok_button = messagebox.addButton(messagebox.Ok)
+    open_button = messagebox.addButton('Open Log', messagebox.ActionRole)
+    messagebox.setDefaultButton(ok_button)
+
+    messagebox.exec_()
+    if messagebox.clickedButton() == open_button:
+        common.launch_path(log_path)
+
+def notification_error_message(log_path, text, informative_text):
+    pass
 
 def worker(feed):
     while True:
@@ -29,7 +78,7 @@ def worker(feed):
             #      out is to read the log file or notice the process has disappeared
             if feed.on_exception_action != 'continue':
                 raise
-            feed.logger.exception(exception_log_message+'Continuing sleep loop',
+            feed.logger.exception(EXCEPTION_LOG_MESSAGE+'Continuing sleep loop',
                                   type(exception), feed.on_exception_action)
 
         feed.logger.info('Sleeping for {} minutes', feed.interval_minutes)
@@ -54,10 +103,10 @@ def run(feeds):
                                      "an exception, which shouldn't be possible")
             else:
                 if feed.on_exception_action == 'stop_all_feeds':
-                    message = exception_log_message + 'Exiting'
+                    message = EXCEPTION_LOG_MESSAGE + 'Exiting'
                     reraise = True
                 elif feed.on_exception_action == 'stop_this_feed':
-                    message = exception_log_message + 'Stopping this future only'
+                    message = EXCEPTION_LOG_MESSAGE + 'Stopping this future only'
                     reraise = False
                 with feed.logger.catch_exception(message, type(exception),
                                                  feed.on_exception_action, reraise=reraise):
