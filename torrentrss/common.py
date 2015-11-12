@@ -17,11 +17,13 @@ NAME = logger.ROOT_NAME
 CONFIG_DIR = click.get_app_dir(NAME)
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
 
+WINDOWS = os.name == 'nt'
+
 DEFAULT_FEED_INTERVAL_MINUTES = 60
 DEFAULT_DIRECTORY = tempfile.gettempdir()
 # click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
 # hence os.startfile is preferred for that platform.
-DEFAULT_COMMAND = startfile = os.startfile if os.name == 'nt' else click.launch
+DEFAULT_COMMAND = startfile = os.startfile if WINDOWS else click.launch
 ON_FEED_EXCEPTION_ACTIONS = {'stop_this_feed', 'stop_all_feeds', 'continue'}
 DEFAULT_ON_FEED_EXCEPTION_ACTION = 'continue'
 ON_FEED_EXCEPTION_GUIS = {'qt_messagebox', 'notify-send'}
@@ -166,7 +168,12 @@ class Command:
             arguments[path_index] = path
         except ValueError:
             arguments.append(path)
-        return subprocess.Popen(arguments)
+        if WINDOWS:
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
+        else:
+            startupinfo = None
+        return subprocess.Popen(arguments, startupinfo=startupinfo)
 
 class Feed:
     def __init__(self, name, url, interval_minutes=DEFAULT_FEED_INTERVAL_MINUTES,
