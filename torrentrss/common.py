@@ -151,20 +151,20 @@ class Command:
         return '{}(name={!r}, arguments={})'.format(type(self).__name__, self.name, self.arguments)
 
     @staticmethod
-    def identify_path_argument_index(args):
-        for index, arg in args:
-            if arg == PATH_ARGUMENT:
+    def identify_path_argument_index(arguments):
+        for index, argument in arguments:
+            if argument == PATH_ARGUMENT:
                 return index
-        raise ValueError('no path argument matching {!r} found in {}'.format(PATH_ARGUMENT, args))
+        raise ValueError('no path argument matching {!r} found in {}'.format(PATH_ARGUMENT, arguments))
 
     def __call__(self, path):
-        args = self.args.copy()
+        arguments = self.arguments.copy()
         try:
-            path_index = self.identify_path_argument_index(args)
-            args[path_index] = path
+            path_index = self.identify_path_argument_index(arguments)
+            arguments[path_index] = path
         except ValueError:
-            args.append(path)
-        return subprocess.Popen(args)
+            arguments.append(path)
+        return subprocess.Popen(arguments)
 
 class Feed:
     def __init__(self, name, url, interval_minutes=DEFAULT_FEED_INTERVAL_MINUTES,

@@ -15,7 +15,8 @@
         {
             "name": "The Last Kingdom",
             "url": "http://kickass.ytsre.in/usearch/last%20kingdom%20category%3Atv/?rss=1",
-            "enabled": false
+            "enabled": false,
+            "on_exception_gui": "qt5_messagebox"
         }
     ],
     "directories": [
