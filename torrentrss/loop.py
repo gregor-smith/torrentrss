@@ -6,16 +6,19 @@ import subprocess
 import concurrent.futures
 
 try:
-    from PyQt5 import QtWidgets
+    from PyQt5.QtWidgets import QApplication, QMessageBox
+    HAS_PYQT = True
+    PYQT_VERSION = 5
 except ImportError:
-    HAS_PYQT5 = False
-else:
-    qt = QtWidgets.QApplication([])
-    HAS_PYQT5 = True
+    try:
+        from PyQt4.QtGui import QApplication, QMessageBox
+        HAS_PYQT = True
+        PYQT_VERSION = 4
+    except ImportError:
+        HAS_PYQT = False
+        PYQT_VERSION = None
 
 from . import common
-
-HAS_LIBNOTIFY = shutil.which('notify-send') is not None
 
 EXCEPTION_LOG_MESSAGE = "Future encountered {} exception. 'on_exception_action' is {!r}."
 EXCEPTION_GUI_MESSAGE = 'Feed {!r} encountered an {} exception.'
@@ -26,27 +29,34 @@ EXCEPTION_ACTION_MESSAGES = {
     'continue': EXCEPTION_ACTION_MESSAGE_START + 'this feed will retry in {0.interval_minutes}m.'
 }
 
+HAS_NOTIFY_SEND = shutil.which('notify-send') is not None
+QAPPLICATION = None
+
 def show_gui_error(feed, exception):
     log_path = feed.logger.current_file_path()
     text = EXCEPTION_GUI_MESSAGE.format(feed.name, type(exception))
     informative_text = EXCEPTION_ACTION_MESSAGES[feed.on_exception_action].format(feed)
-    detailed_text = traceback.format_excs()
+    detailed_text = traceback.format_exc()
 
-    if feed.on_exception_gui == 'qt5_messagebox':
-        if HAS_PYQT5:
-            show_error_as_pyqt5_messagebox(log_path, text, informative_text, detailed_text)
+    if feed.on_exception_gui == 'qt_messagebox':
+        if HAS_PYQT:
+            show_error_as_pyqt_messagebox(log_path, text, informative_text, detailed_text)
         else:
-            feed.logger.warning("'on_exception_gui' is 'qt5_messagebox'"
-                                'but PyQt5 could not be imported.')
-    elif feed.on_exception_action == 'libnotify':
-        if HAS_LIBNOTIFY:
-            show_error_as_libnotify_notification(log_path, text, informative_text)
+            feed.logger.warning("'on_exception_gui' is 'qt_messagebox'"
+                                'but neither PyQt5 nor PyQt4 could be imported.')
+    elif feed.on_exception_action == 'notify-send':
+        if HAS_NOTIFY_SEND:
+            show_error_as_notify_send_notification(log_path, text, informative_text)
         else:
-            feed.logger.warning("'on_exception_gui' is 'libnotify'"
+            feed.logger.warning("'on_exception_gui' is 'notify-send'"
                                 "but the 'notify-send' executable could not be found.")
 
-def show_error_as_pyqt5_messagebox(log_path, text, informative_text, detailed_text):
-    messagebox = QtWidgets.QMessageBox()
+def show_error_as_pyqt_messagebox(log_path, text, informative_text, detailed_text):
+    if QAPPLICATION is None:
+        global QAPPLICATION
+        QAPPLICATION = QApplication([])
+
+    messagebox = QMessageBox()
     messagebox.setWindowTitle(common.NAME)
     messagebox.setText(text)
     messagebox.setInformativeText(informative_text)
@@ -60,7 +70,7 @@ def show_error_as_pyqt5_messagebox(log_path, text, informative_text, detailed_te
     if messagebox.clickedButton() == open_button:
         common.startfile(log_path)
 
-def show_error_as_libnotify_notification(log_path, text, informative_text):
+def show_error_as_notify_send_notification(log_path, text, informative_text):
     path = pathlib.Path(log_path).as_uri()
     message = '{} {} Click to open log file:\n{}'.format(text, informative_text, path)
     subprocess.Popen(['notify-send', '--app-name', common.NAME, common.NAME, message])
@@ -87,6 +97,8 @@ def worker(feed):
         except Exception as exception:
             #TODO: notifications when exception is encountered, as currently the only way to find
             #      out is to read the log file or notice the process has disappeared
+            if feed.on_exception_gui is not None:
+                show_gui_error(feed, exception)
             if feed.on_exception_action != 'continue':
                 raise
             feed.logger.exception(EXCEPTION_LOG_MESSAGE+'Continuing sleep loop',

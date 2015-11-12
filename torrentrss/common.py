@@ -24,6 +24,8 @@ DEFAULT_DIRECTORY = tempfile.gettempdir()
 DEFAULT_COMMAND = startfile = os.startfile if os.name == 'nt' else click.launch
 ON_FEED_EXCEPTION_ACTIONS = {'stop_this_feed', 'stop_all_feeds', 'continue'}
 DEFAULT_ON_FEED_EXCEPTION_ACTION = 'continue'
+ON_FEED_EXCEPTION_GUIS = {'qt_messagebox', 'notify-send'}
+DEFAULT_ON_FEED_EXCEPTION_GUI = None
 DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = True
 PATH_ARGUMENT = '$PATH'
 NUMBER_REGEX_GROUP = 'number'
@@ -169,11 +171,13 @@ class Command:
 class Feed:
     def __init__(self, name, url, interval_minutes=DEFAULT_FEED_INTERVAL_MINUTES,
                  on_exception_action=DEFAULT_ON_FEED_EXCEPTION_ACTION,
+                 on_exception_gui=DEFAULT_ON_FEED_EXCEPTION_GUI,
                  enabled=DEFAULT_FEED_ENABLED):
         self.name = name
         self.url = url
         self.interval_minutes = interval_minutes
         self.on_exception_action = on_exception_action
+        self.on_exception_gui = on_exception_gui
         self.enabled = enabled
 
         self.subscriptions = {}
