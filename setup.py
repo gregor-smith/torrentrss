@@ -3,7 +3,7 @@ import setuptools
 setuptools.setup(
     name='torrentrss',
     description='torrentrss',
-    version='0.1.7',
+    version='0.1.8',
     author='Gregor Smith',
     url='https://github.com/gregor-smith/torrentrss',
     license='MIT',

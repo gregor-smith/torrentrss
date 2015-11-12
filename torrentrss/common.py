@@ -21,7 +21,7 @@ DEFAULT_FEED_INTERVAL_MINUTES = 60
 DEFAULT_DIRECTORY = tempfile.gettempdir()
 # click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
 # hence os.startfile is preferred for that platform.
-DEFAULT_COMMAND = launch_path = os.startfile if os.name == 'nt' else click.launch
+DEFAULT_COMMAND = startfile = os.startfile if os.name == 'nt' else click.launch
 ON_FEED_EXCEPTION_ACTIONS = {'stop_this_feed', 'stop_all_feeds', 'continue'}
 DEFAULT_ON_FEED_EXCEPTION_ACTION = 'continue'
 DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = True
@@ -234,7 +234,7 @@ class Feed:
             return False
 
 class Subscription:
-    forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
+    forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\| ]')
 
     def __init__(self, name, feed, regex, directory=DEFAULT_DIRECTORY,
                  command=DEFAULT_COMMAND, user_agent=None, enabled=DEFAULT_SUBSCRIPTION_ENABLED):
@@ -292,7 +292,7 @@ class Subscription:
         return rss_entry.link
 
     def torrent_path_for(self, title):
-        fixed_title = re.sub(self.forbidden_characters_regex, '-', title)
+        fixed_title = re.sub(self.forbidden_characters_regex, '_', title)
         if fixed_title != title:
             self.logger.info('Title contained invalid characters: {!r} -> {!r}',
                              title, fixed_title)

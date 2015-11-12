@@ -58,7 +58,7 @@ def show_error_as_pyqt5_messagebox(log_path, text, informative_text, detailed_te
 
     messagebox.exec_()
     if messagebox.clickedButton() == open_button:
-        common.launch_path(log_path)
+        common.startfile(log_path)
 
 def show_error_as_libnotify_notification(log_path, text, informative_text):
     path = pathlib.Path(log_path).as_uri()
