@@ -148,7 +148,7 @@ class Config:
 
     def run(self):
         for feed in self.feeds.values():
-            if feed.enabled and feed.has_enabled_subscription():
+            if feed.enabled and feed.has_any_enabled_subscriptions():
                 # List is called here as otherwise subscription.number would be updated during the
                 # loop before being checked by the next iteration of feed.matching_subscriptions,
                 # so if a subscription's number was originally 2 and there were entries with 4 and 3,
@@ -232,7 +232,7 @@ class Feed:
                     logging.debug('NO MATCH: Entry %s titled %r does not match subscription %r',
                                   index, entry.title, subscription.name)
 
-    def has_enabled_subscription(self):
+    def has_any_enabled_subscriptions(self):
         try:
             next(self.enabled_subscriptions())
             return True
@@ -325,3 +325,26 @@ def exception_logging():
     except Exception as error:
         logging.exception('%r', type(error))
         raise
+
+def logging_level_from_string(context, parameter, value):
+    return getattr(logging, value)
+
+logging_level_choice = click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
+
+@click.command()
+@click.option('--file-logging-level', type=logging_level_choice, default='DEBUG',
+              callback=logging_level_from_string)
+@click.option('--console-logging-level', type=logging_level_choice, default='INFO',
+              callback=logging_level_from_string)
+@click.version_option()
+def main(file_logging_level, console_logging_level):
+    configure_logging(file_logging_level, console_logging_level)
+
+    with exception_logging():
+        try:
+            config = Config()
+        except FileNotFoundError as error:
+            raise click.Abort('No config file found at {!r}. See the schema in the package.'
+                              .format(CONFIG_PATH)) from error
+        with config.errors_shown_as_gui():
+            config.run()

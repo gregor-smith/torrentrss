@@ -1,3 +1,3 @@
-from . import cli
+from ._torrentrss import main
 
-cli.main()
+main()
