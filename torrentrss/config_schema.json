@@ -23,6 +23,7 @@
 						"type": "string"
 					},
 					"enabled": {
+						"description": "Considered true if missing",
 						"type": "boolean"
 					},
 					"subscriptions": {
@@ -42,7 +43,7 @@
 									"type": "string",
 								},
 								"command": {
-									"description": "Command run after the torrent file is downloaded. '$PATH' is substituted for the torrent file's path. If no '$PATH' substitutions were made, the torrent file's path is appended to the end of the command. If missing, the file is launched with the default program for opening torrent files."
+									"description": "Command run after the torrent file is downloaded. '$PATH' is substituted for the torrent file's path. If no '$PATH' substitutions were made, the torrent file's path is appended to the end of the command. If missing, the file is launched with the default program for opening torrent files.",
 									"type": "array",
 									"items": {
 										"type": "string"
@@ -50,6 +51,7 @@
 									"minItems": 1
 								},
 								"enabled": {
+									"description": "Considered true if missing",
 									"type": "boolean"
 								}
 							},

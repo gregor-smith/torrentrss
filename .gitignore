@@ -5,3 +5,4 @@ testing/
 *.egg-info
 *.sublime-workspace
 *.sublime-project
+*.7z

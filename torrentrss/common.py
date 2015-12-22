@@ -1,8 +1,12 @@
 import os
 import re
 import json
+import random
+import logging
+import pathlib
 import datetime
 import tempfile
+import contextlib
 import subprocess
 
 import click
@@ -11,155 +15,97 @@ import feedparser
 import jsonschema
 import pkg_resources
 
-from . import logger
-
-NAME = logger.ROOT_NAME
-CONFIG_DIR = click.get_app_dir(NAME)
-CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
+NAME = 'torrentrss'
+CONFIG_DIR = pathlib.Path(click.get_app_dir(NAME))
+CONFIG_PATH = CONFIG_DIR / 'config.json'
 
 WINDOWS = os.name == 'nt'
 
-DEFAULT_FEED_INTERVAL_MINUTES = 60
-DEFAULT_DIRECTORY = tempfile.gettempdir()
+LOG_MESSAGE_FORMAT = '[{asctime} {levelname}]:\n{message}'
+LOG_PATH_FORMAT = 'logs/{0:%Y}/{0:%m}/{0:%Y-%m-%d_%H-%M-%S}.log'
+
+USER_AGENTS = {
+    'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/46.0.2490.86 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:42.0) Gecko/20100101 Firefox/42.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_1) AppleWebKit/601.2.7 (KHTML, like Gecko) Version/9.0.1 Safari/601.2.7'
+}
+EXCEPTION_GUIS = {'Qt5', 'notify-send'}
+DEFAULT_EXCEPTION_GUI = None
+DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = True
+DEFAULT_DIRECTORY = pathlib.Path(tempfile.gettempdir())
 # click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
 # hence os.startfile is preferred for that platform.
-DEFAULT_COMMAND = startfile = os.startfile if WINDOWS else click.launch
-ON_FEED_EXCEPTION_ACTIONS = {'stop_this_feed', 'stop_all_feeds', 'continue'}
-DEFAULT_ON_FEED_EXCEPTION_ACTION = 'continue'
-ON_FEED_EXCEPTION_GUIS = {'qt_messagebox', 'notify-send'}
-DEFAULT_ON_FEED_EXCEPTION_GUI = None
-DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = True
-PATH_ARGUMENT = '$PATH'
+DEFAULT_COMMAND = os.startfile if WINDOWS else click.launch
+COMMAND_PATH_ARGUMENT = '$PATH'
 NUMBER_REGEX_GROUP = 'number'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
 
 class ConfigError(Exception):
     pass
 
-class Config(dict):
-    def __init__(self):
-        super().__init__()
-        self.logger = logger.create_child(module_name=__name__, type_name=type(self).__name__)
-
-    def schema(self):
-        json_bytes = pkg_resources.resource_string(__name__, 'config_schema.json')
-        json_string = str(json_bytes, encoding='utf-8')
-        return json.loads(json_string)
-
-    def load(self, path=CONFIG_PATH):
-        self.logger.debug('Config path: {!r}', path)
-
-        with open(path) as file:
-            self.json_dict = json.load(file)
-        jsonschema.validate(self.json_dict, self.schema())
-
-        self._update_simple_object('feeds', Feed)
-        self._update_directories()
-        self._update_simple_object('commands', Command)
-        self._update_subscriptions()
-
+class Config:
+    def __init__(self, path=CONFIG_PATH):
         self.path = path
+        with path.open() as file:
+            self.json_dict = json.load(file)
+        jsonschema.validate(self.json_dict, self.get_schema())
 
-    def _update_simple_object(self, key, new_type):
-        self[key] = {dct['name']: new_type(**dct) for dct in self.json_dict[key]}
+        self.user_agent = self.json_dict.get('user_agent', random.choice(USER_AGENTS))
+        self.exception_gui = self.json_dict.get('exception_gui', DEFAULT_EXCEPTION_GUI)
 
-    def _update_directories(self):
-        self['directories'] = directories = {}
-        for directory in self.json_dict['directories']:
-            name = directory['name']
-            path = directory['path']
-            if os.path.exists(path):
-                if not os.path.isdir(path):
-                    self.logger.debug("'Directory' {!r} exists but is not "
-                                      'in fact a directory: {!r}', name, path)
-                    raise NotADirectoryError(path)
-                self.logger.debug('Directory {!r} exists: {!r}', name, path)
-            else:
-                os.makedirs(path)
-                self.logger.info('Directory did not exist and was created: {!r}', path)
-            directories[name] = path
-            self.logger.debug('Directories key {!r} = {!r}', name, path)
+        self.feeds = {}
+        for feed in self.json_dict['feeds']:
+            feed_name = feed['name']
+            url = feed['url']
+            feed_enabled = feed.get('enabled', DEFAULT_FEED_ENABLED)
 
-    def _get_from_other_dict(self, root_dict_key, instance_key,
-                             error_subscription_name, error_property_name):
-        try:
-            return self[root_dict_key][instance_key]
-        except KeyError as error:
-            raise ConfigError('Subscription {!r} {} {!r} not defined'
-                              .format(error_subscription_name,
-                                      error_property_name, instance_key)) from error
+            subscriptions = {}
+            for sub in feed['subscriptions']:
+                sub_name = sub['name']
 
-    def _get_from_other_dict_with_default(self, subscription_dict, property_name,
-                                          root_dict_key, default, error_subscription_name):
-        try:
-            instance_key = subscription_dict[property_name]
-        except KeyError:
-            return default
-        return self._get_from_other_dict(root_dict_key, instance_key,
-                                         error_subscription_name, property_name)
+                pattern = sub['pattern']
+                try:
+                    regex = re.compile(pattern)
+                except re.error as error:
+                    raise ConfigError('Feed {!r} subscription {!r} pattern {!r} not valid regex: {}'
+                                      .format(feed_name, sub_name, pattern, ' - '.join(error.args))) from error
+                if NUMBER_REGEX_GROUP not in regex.groupindex:
+                    raise ConfigError('Feed {!r} subscription {!r} pattern {!r} has no {!r} group'
+                                      .format(feed_name, sub_name, pattern, NUMBER_REGEX_GROUP))
 
-    def _update_subscriptions(self):
-        user_agent = self.json_dict.get('user_agent')
+                directory = pathlib.Path(sub['directory']) if 'directory' in sub else DEFAULT_DIRECTORY
+                command = Command(sub['command']) if 'command' in sub else DEFAULT_COMMAND
+                sub_enabled = sub.get('enabled', DEFAULT_SUBSCRIPTION_ENABLED)
 
-        #TODO: more logging here
-        self['subscriptions'] = subscriptions = {}
-        for subscription in self.json_dict['subscriptions']:
-            name = subscription['name']
-            feed_name = subscription['feed']
-            feed = self._get_from_other_dict(root_dict_key='feeds', instance_key=feed_name,
-                                             error_subscription_name=name,
-                                             error_property_name='feed')
+                subsriptions[sub_name] = Subscription(sub_name, regex, directory,
+                                                      command, sub_enabled)
+            self.feeds[feed_name] = Feed(feed_name, url, feed_enabled, subscriptions)
 
-            pattern = subscription['pattern']
-            try:
-                regex = re.compile(pattern)
-            except re.error as error:
-                raise ConfigError('Subscription {!r} pattern {!r} not valid regular expression: {}'
-                                  .format(name, pattern, ' - '.join(error.args))) from error
-            if NUMBER_REGEX_GROUP not in regex.groupindex:
-                raise ConfigError('Subscription {!r} pattern {!r} has no {!r} group'
-                                  .format(name, pattern, NUMBER_REGEX_GROUP))
-
-            directory = self._get_from_other_dict_with_default(subscription,
-                                                               property_name='directory',
-                                                               root_dict_key='directories',
-                                                               default=DEFAULT_DIRECTORY,
-                                                               error_subscription_name=name)
-
-            command = self._get_from_other_dict_with_default(subscription,
-                                                             property_name='command',
-                                                             root_dict_key='commands',
-                                                             default=DEFAULT_COMMAND,
-                                                             error_subscription_name=name)
-
-            enabled = subscription.get('enabled', DEFAULT_SUBSCRIPTION_ENABLED)
-
-            subscription = Subscription(name, feed, regex, directory, command, user_agent, enabled)
-            subscriptions[name] = feed.subscriptions[name] = subscription
-            self.logger.debug('Subscriptions key {!r} = {!r}', name, subscription)
+    @staticmethod
+    def get_schema():
+        schema_bytes = pkg_resources.resource_string(__name__, 'config_schema.json')
+        schema_string = str(schema_bytes, encoding='utf-8')
+        return json.loads(schema_string)
 
     def enabled_feeds(self):
-        for feed in self['feeds'].values():
+        for feed in self.feeds.values():
             if feed.enabled:
                 yield feed
 
 class Command:
-    def __init__(self, name, arguments):
-        self.name = name
+    def __init__(self, arguments):
         self.arguments = arguments
 
-        self.logger = logger.create_child(module_name=__name__, type_name=type(self).__name__,
-                                          instance_name=self.name)
-
     def __repr__(self):
-        return '{}(name={!r}, arguments={})'.format(type(self).__name__, self.name, self.arguments)
+        return '{}(arguments={})'.format(type(self).__name__, self.arguments)
 
     @staticmethod
     def identify_path_argument_index(arguments):
-        for index, argument in arguments:
+        for index, argument in enumerate(arguments):
             if argument == PATH_ARGUMENT:
                 return index
-        raise ValueError('no path argument matching {!r} found in {}'.format(PATH_ARGUMENT, arguments))
+        raise ValueError('no path argument matching {!r} found in {}'
+                         .format(PATH_ARGUMENT, arguments))
 
     def __call__(self, path):
         arguments = self.arguments.copy()
@@ -176,10 +122,7 @@ class Command:
         return subprocess.Popen(arguments, startupinfo=startupinfo)
 
 class Feed:
-    def __init__(self, name, url, interval_minutes=DEFAULT_FEED_INTERVAL_MINUTES,
-                 on_exception_action=DEFAULT_ON_FEED_EXCEPTION_ACTION,
-                 on_exception_gui=DEFAULT_ON_FEED_EXCEPTION_GUI,
-                 enabled=DEFAULT_FEED_ENABLED):
+    def __init__(self, name, url, enabled, subscriptions):
         self.name = name
         self.url = url
         self.interval_minutes = interval_minutes
@@ -247,14 +190,11 @@ class Feed:
 class Subscription:
     forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\| ]')
 
-    def __init__(self, name, feed, regex, directory=DEFAULT_DIRECTORY,
-                 command=DEFAULT_COMMAND, user_agent=None, enabled=DEFAULT_SUBSCRIPTION_ENABLED):
+    def __init__(self, name, regex, directory, command, enabled):
         self.name = name
-        self.feed = feed
         self.regex = regex
         self.directory = directory
         self.command = command
-        self.user_agent = user_agent
         self.enabled = enabled
 
         self.number_file_path = os.path.join(CONFIG_DIR, self.name+'.number')
@@ -325,3 +265,22 @@ class Subscription:
             file.write(response.content)
         self.logger.debug('Wrote response content to {!r}', path)
         return path
+
+def configure_logging(file_logging_level, console_logging_level):
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(console_logging_level)
+
+    file_path = CONFIG_DIR / LOG_PATH_FORMAT.format(datetime.datetime.now())
+    file_handler = logging.FileHandler(str(file_path))
+    file_handler.setLevel(file_logging_level)
+
+    logging.basicConfig(format=LOG_MESSAGE_FORMAT, handlers=[file_handler, console_handler])
+
+@contextlib.contextmanager
+def log_exception(*message, reraise=True):
+    try:
+        yield
+    except Exception as exception:
+        logging.exception(*message) if message else logging.exception('%s', type(exception))
+        if reraise:
+            raise
