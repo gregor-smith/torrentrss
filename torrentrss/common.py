@@ -2,10 +2,12 @@ import os
 import re
 import json
 import random
+import shutil
 import logging
 import pathlib
 import datetime
 import tempfile
+import traceback
 import contextlib
 import subprocess
 
@@ -22,7 +24,9 @@ CONFIG_PATH = CONFIG_DIR / 'config.json'
 WINDOWS = os.name == 'nt'
 
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s]\n%(message)s'
+# TODO: command line or config option to change log path
 LOG_PATH_FORMAT = 'logs/{0:%Y}/{0:%m}/{0:%Y-%m-%d_%H-%M}.log'
+LOG_PATH = CONFIG_DIR / LOG_PATH_FORMAT.format(datetime.datetime.now())
 
 # TODO: better means of fetching common user agents
 USER_AGENTS = {
@@ -32,11 +36,12 @@ USER_AGENTS = {
 }
 EXCEPTION_GUIS = {'Qt5', 'notify-send'}
 DEFAULT_EXCEPTION_GUI = None
+HAS_NOTIFY_SEND = shutil.which('notify-send') is not None
 DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = True
 DEFAULT_DIRECTORY = pathlib.Path(tempfile.gettempdir())
 # click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
 # hence os.startfile is preferred for that platform.
-DEFAULT_COMMAND = os.startfile if WINDOWS else click.launch
+DEFAULT_COMMAND = startfile = os.startfile if WINDOWS else click.launch
 COMMAND_PATH_ARGUMENT = '$PATH'
 NUMBER_REGEX_GROUP = 'number'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
@@ -51,10 +56,21 @@ class Config:
             self.json_dict = json.load(file)
         jsonschema.validate(self.json_dict, self.get_schema())
 
-        self.user_agent = self.json_dict.get('user_agent', random.choice(USER_AGENTS))
+        self.user_agent = (self.json_dict['user_agent'] if 'user_agent' in self.json_dict
+                           else random.choice(USER_AGENTS))
+
         self.exception_gui = self.json_dict.get('exception_gui', DEFAULT_EXCEPTION_GUI)
-        if self.exception_gui is not None and self.exception_gui not in EXCEPTION_GUIS:
-            raise ConfigError("'exception_gui' {!r} unknown - valid choices are one of {}"
+        if self.exception_gui == 'Qt5' and self.pyqt_qapplication is None:
+            try:
+                import PyQt5
+            except ImportError as error:
+                raise ConfigError("'exception_gui' is 'Qt5' but PyQt5 failed to import: {}"
+                                  .format(' - '.join(error.args))) from error
+        elif self.exception_gui == 'notify-send' and not HAS_NOTIFY_SEND:
+            raise ConfigError("'exception_gui' is 'notify-send' but notify-send"
+                              'could not be found on the PATH')
+        elif self.exception_gui is not None:
+            raise ConfigError("'exception_gui' {!r} unknown. Must be one of {}"
                               .format(EXCEPTION_GUIS))
 
         self.feeds = {}
@@ -94,10 +110,61 @@ class Config:
         schema_string = str(schema_bytes, encoding='utf-8')
         return json.loads(schema_string)
 
-    def enabled_feeds(self):
+    @contextlib.contextmanager
+    def errors_shown_as_gui(self):
+        try:
+            yield
+        except Exception as error:
+            if self.exception_gui is not None:
+                text = '{} encountered {!r} exception.'.format(NAME, type(exception))
+                error_traceback = traceback.format_exc()
+                if self.exception_gui == 'notify-send':
+                    self.show_error_notification(text, error_traceback)
+                elif self.exception_gui == 'Qt5':
+                    self.show_pyqt5_error_messagebox(text, error_traceback)
+            raise
+
+    @staticmethod
+    def show_error_pyqt5_messagebox(text, error_traceback):
+        import PyQt5.QtWidgets
+
+        messagebox = PyQt5.QtWidgets.QMessageBox()
+        messagebox.setWindowTitle(NAME)
+        messagebox.setText(text)
+        messagebox.setDetailedText(error_traceback)
+
+        ok_button = messagebox.addButton(messagebox.Ok)
+        open_button = messagebox.addButton('Open Log', messagebox.ActionRole)
+        messagebox.setDefaultButton(ok_button)
+
+        messagebox.exec_()
+        if messagebox.clickedButton() == open_button:
+            startfile(log_path)
+
+    @staticmethod
+    def show_error_notification(text):
+        message = '{} Click to open log file:\n{}'.format(text, log_path.as_uri())
+        subprocess.Popen(['notify-send', '--app-name', NAME, NAME, message])
+
+    def run(self):
         for feed in self.feeds.values():
             if feed.enabled and feed.has_enabled_subscription():
-                yield feed
+                # List is called here as otherwise subscription.number would be updated during the
+                # loop before being checked by the next iteration of feed.matching_subscriptions,
+                # so if a subscription's number was originally 2 and there were entries with 4 and 3,
+                # 4 would become the subscription's number, and because 4 > 3, 3 would be skipped.
+                # Calling list first checks all entries against the subscription's original number,
+                # avoiding this problem. The alternatives were to update numbers in another loop
+                # afterwards, or to call reversed first on rss.entries in feed.matching_subscriptions.
+                # The latter seems like an ok workaround at first, since it would yield 3 before 4,
+                # but if 4 were added to the rss before 3 for some reason, it would still break.
+                for subscription, entry, number in list(feed.matching_subscriptions()):
+                    torrent_path = subscription.download(entry)
+                    logging.info('%r downloaded to %r', entry.link, torrent_path)
+                    subscription.command(torrent_path)
+                    logging.info('%r launched with %r', torrent_path, subscription.command)
+                    if subscription.has_lower_number_than(number):
+                        subscription.number = number
 
 class Command:
     path_replacement_regex = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
@@ -246,17 +313,15 @@ def configure_logging(file_logging_level, console_logging_level):
     console_handler = logging.StreamHandler()
     console_handler.setLevel(console_logging_level)
 
-    file_path = CONFIG_DIR / LOG_PATH_FORMAT.format(datetime.datetime.now())
-    file_handler = logging.FileHandler(str(file_path))
+    file_handler = logging.FileHandler(str(LOG_PATH))
     file_handler.setLevel(file_logging_level)
 
     logging.basicConfig(format=LOG_MESSAGE_FORMAT, handlers=[file_handler, console_handler])
 
 @contextlib.contextmanager
-def log_exception(*message, reraise=True):
+def exception_logging():
     try:
         yield
-    except Exception as exception:
-        logging.exception(*message) if message else logging.exception('%s', type(exception))
-        if reraise:
-            raise
+    except Exception as error:
+        logging.exception('%r', type(error))
+        raise
