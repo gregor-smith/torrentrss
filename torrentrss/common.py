@@ -21,9 +21,10 @@ CONFIG_PATH = CONFIG_DIR / 'config.json'
 
 WINDOWS = os.name == 'nt'
 
-LOG_MESSAGE_FORMAT = '[{asctime} {levelname}]:\n{message}'
-LOG_PATH_FORMAT = 'logs/{0:%Y}/{0:%m}/{0:%Y-%m-%d_%H-%M-%S}.log'
+LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s]\n%(message)s'
+LOG_PATH_FORMAT = 'logs/{0:%Y}/{0:%m}/{0:%Y-%m-%d_%H-%M}.log'
 
+# TODO: better means of fetching common user agents
 USER_AGENTS = {
     'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/46.0.2490.86 Safari/537.36',
     'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:42.0) Gecko/20100101 Firefox/42.0',
@@ -52,6 +53,9 @@ class Config:
 
         self.user_agent = self.json_dict.get('user_agent', random.choice(USER_AGENTS))
         self.exception_gui = self.json_dict.get('exception_gui', DEFAULT_EXCEPTION_GUI)
+        if self.exception_gui is not None and self.exception_gui not in EXCEPTION_GUIS:
+            raise ConfigError("'exception_gui' {!r} unknown - valid choices are one of {}"
+                              .format(EXCEPTION_GUIS))
 
         self.feeds = {}
         for feed in self.json_dict['feeds']:
@@ -81,6 +85,9 @@ class Config:
                                                       command, sub_enabled)
             self.feeds[feed_name] = Feed(feed_name, url, feed_enabled, subscriptions)
 
+    def __repr__(self):
+        return '{}(path={!r})'.format(type(self).__name__, self.path)
+
     @staticmethod
     def get_schema():
         schema_bytes = pkg_resources.resource_string(__name__, 'config_schema.json')
@@ -89,52 +96,34 @@ class Config:
 
     def enabled_feeds(self):
         for feed in self.feeds.values():
-            if feed.enabled:
+            if feed.enabled and feed.has_enabled_subscription():
                 yield feed
 
 class Command:
+    path_replacement_regex = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
+
     def __init__(self, arguments):
         self.arguments = arguments
 
     def __repr__(self):
         return '{}(arguments={})'.format(type(self).__name__, self.arguments)
 
-    @staticmethod
-    def identify_path_argument_index(arguments):
-        for index, argument in enumerate(arguments):
-            if argument == PATH_ARGUMENT:
-                return index
-        raise ValueError('no path argument matching {!r} found in {}'
-                         .format(PATH_ARGUMENT, arguments))
-
     def __call__(self, path):
-        arguments = self.arguments.copy()
-        try:
-            path_index = self.identify_path_argument_index(arguments)
-            arguments[path_index] = path
-        except ValueError:
-            arguments.append(path)
         if WINDOWS:
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
         else:
             startupinfo = None
+        arguments = [self.path_replacement_regex.sub(path, argument)
+                     for argument in self.arguments]
         return subprocess.Popen(arguments, startupinfo=startupinfo)
 
 class Feed:
     def __init__(self, name, url, enabled, subscriptions):
         self.name = name
         self.url = url
-        self.interval_minutes = interval_minutes
-        self.on_exception_action = on_exception_action
-        self.on_exception_gui = on_exception_gui
         self.enabled = enabled
-
-        self.subscriptions = {}
-        #TODO: separate file handlers for each feed's logger,
-        #      since currently the log file's a huge clusterfuck
-        self.logger = logger.create_child(module_name=__name__, type_name=type(self).__name__,
-                                          instance_name=self.name)
+        self.subscriptions = subscriptions
 
     def __repr__(self):
         return ('{}(name={!r}, url={!r}, interval_minutes={}, subscriptions={})'
@@ -144,9 +133,9 @@ class Feed:
     def fetch(self):
         rss = feedparser.parse(self.url)
         if rss.bozo:
-            self.logger.critical('Error parsing {!r}', self.url)
+            logging.critical('Feed %r: error parsing url %r', self.name, self.url)
             raise rss.bozo_exception
-        self.logger.info('Parsed {!r}', self.url)
+        logging.info('Feed %r: parsed url %r', self.name, self.url)
         return rss
 
     def enabled_subscriptions(self):
@@ -155,30 +144,26 @@ class Feed:
                 yield subscription
 
     def matching_subscriptions(self):
-        #TODO: Record which entries have been checked before
-        #      to avoid needlessly checking them again every time.
         rss = self.fetch()
         for subscription in self.enabled_subscriptions():
-            self.logger.debug('Checking entries against subscription {!r}', subscription.name)
+            logging.debug('Checking entries against subscription %r', subscription.name)
             for index, entry in enumerate(rss.entries):
                 match = subscription.regex.search(entry.title)
                 if match:
                     number = pkg_resources.parse_version(match.group('number'))
                     if subscription.has_lower_number_than(number):
-                        self.logger.info('MATCH: Entry {} titled {!r} has greater number than '
-                                         'subscription {!r}; yielded: {} > {}', index, entry.title,
-                                         subscription.name, number, subscription.number)
+                        logging.info('MATCH: Entry %s titled %r has greater number than '
+                                     'subscription %r; yielded: %s > %s', index, entry.title,
+                                     subscription.name, number, subscription.number)
                         yield subscription, entry, number
                     else:
-                        self.logger.debug('NO MATCH: Entry {} titled {!r} matches '
-                                          'but number is smaller than or equal to that '
-                                          'of subscription {!r}; skipped: {} <= {}',
-                                          index, entry.title, subscription.name,
-                                          number, subscription.number)
+                        logging.debug('NO MATCH: Entry %s titled %r matches but number is smaller '
+                                      'than or equal to that of subscription %r; skipped: %s <= %s',
+                                      index, entry.title, subscription.name,
+                                      number, subscription.number)
                 else:
-                    self.logger.debug('NO MATCH: Entry {} titled {!r} '
-                                      'does not match subscription {!r}',
-                                      index, entry.title, subscription.name)
+                    logging.debug('NO MATCH: Entry %s titled %r does not match subscription %r',
+                                  index, entry.title, subscription.name)
 
     def has_enabled_subscription(self):
         try:
@@ -188,7 +173,7 @@ class Feed:
             return False
 
 class Subscription:
-    forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\| ]')
+    windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\| ]')
 
     def __init__(self, name, regex, directory, command, enabled):
         self.name = name
@@ -197,73 +182,64 @@ class Subscription:
         self.command = command
         self.enabled = enabled
 
-        self.number_file_path = os.path.join(CONFIG_DIR, self.name+'.number')
+        self.number_file_path = self.windows_safe_filename(CONFIG_DIR / self.name+'.number')
         self._number = None
-
-        self.logger = logger.create_child(module_name=__name__, type_name=type(self).__name__,
-                                          instance_name=self.name)
 
     def __repr__(self):
         return ('{}(name={!r}, feed={!r}, pattern={!r}, directory={!r}, command={!r}, number={})'
                 .format(type(self).__name__, self.name, self.feed.name,
                         self.regex.pattern, self.directory, self.command, self.number))
 
+    def windows_safe_filename(self, path):
+        if WINDOWS:
+            new_name = self.windows_forbidden_characters_regex.sub('_', path.name)
+            return path.with_name(new_name)
+        return path
+
     @property
     def number(self):
         if self._number is None:
             try:
-                with open(self.number_file_path) as file:
+                with self.number_file_path.open() as file:
                     line = file.readline()
                 self._number = pkg_resources.parse_version(line)
-                self.logger.info('Parsed {!r}; returning {}', self.number_file_path, self._number)
+                logging.info('Parsed %r; returning %s', self.number_file_path, self._number)
             except FileNotFoundError:
-                self.logger.info('No number file found at {!r}; returning None',
-                                 self.number_file_path)
+                logging.info('No number file found at %r; returning None', self.number_file_path)
         return self._number
 
     @number.setter
     def number(self, new_number):
         self._number = new_number
-        with open(self.number_file_path, 'w') as file:
-            file.write(str(new_number))
-        self.logger.info('Number {} written to file {!r}',
-                         new_number, self.number_file_path)
+        self.number_file_path.write_text(str(new_number))
+        logging.info('Number %s written to file %r', new_number, self.number_file_path)
 
     def has_lower_number_than(self, other_number):
         return self.number is None or self.number < other_number
 
-    def torrent_link_for(self, rss_entry):
+    @staticmethod
+    def torrent_link_for(rss_entry):
         for link in rss_entry.links:
             if link.type == TORRENT_MIMETYPE:
-                self.logger.debug('First link of entry {!r} with mimetype {!r}: {}',
-                                  rss_entry.title, TORRENT_MIMETYPE, link.href)
+                logging.debug('First link of entry %r with mimetype %r: %s',
+                              rss_entry.title, TORRENT_MIMETYPE, link.href)
                 return link.href
-        self.logger.info('Entry {!r} has no link with mimetype {!r}; returning first link: {}',
-                         rss_entry.title, TORRENT_MIMETYPE, rss_entry.link)
+        logging.info('Entry %r has no link with mimetype %r; returning first link: %s',
+                     rss_entry.title, TORRENT_MIMETYPE, rss_entry.link)
         return rss_entry.link
-
-    def torrent_path_for(self, title):
-        fixed_title = re.sub(self.forbidden_characters_regex, '_', title)
-        if fixed_title != title:
-            self.logger.info('Title contained invalid characters: {!r} -> {!r}',
-                             title, fixed_title)
-        path = os.path.join(self.directory, fixed_title+'.torrent')
-        self.logger.debug('Path for {!r}: {!r}', title, path)
-        return path
 
     def download(self, rss_entry):
         link = self.torrent_link_for(rss_entry)
         headers = {} if self.user_agent is None else {'User-Agent': self.user_agent}
-        self.logger.debug('Sending GET request to {!r} with headers {}', link, headers)
+        logging.debug('Sending GET request to %r with headers %s', link, headers)
         response = requests.get(link, headers=headers)
-        self.logger.debug("Response status code is {}, 'ok' is {}",
-                          response.status_code, response.ok)
+        logging.debug("Response status code is %s, 'ok' is %s", response.status_code, response.ok)
         response.raise_for_status()
 
-        path = self.torrent_path_for(rss_entry.title)
-        with open(path, 'wb') as file:
-            file.write(response.content)
-        self.logger.debug('Wrote response content to {!r}', path)
+        self.directory.mkdir(parents=True, exist_ok=True)
+        path = self.windows_safe_filename(self.directory / rss_entry.title+'.torrent')
+        path.write_bytes(response.content)
+        logging.debug('Wrote response content to %r', path)
         return path
 
 def configure_logging(file_logging_level, console_logging_level):
