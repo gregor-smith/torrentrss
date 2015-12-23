@@ -29,11 +29,11 @@ LOG_PATH_FORMAT = 'logs/{0:%Y}/{0:%m}/{0:%Y-%m-%d_%H-%M}.log'
 LOG_PATH = CONFIG_DIR / LOG_PATH_FORMAT.format(datetime.datetime.now())
 
 # TODO: better means of fetching common user agents
-USER_AGENTS = {
+USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/46.0.2490.86 Safari/537.36',
     'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:42.0) Gecko/20100101 Firefox/42.0',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_1) AppleWebKit/601.2.7 (KHTML, like Gecko) Version/9.0.1 Safari/601.2.7'
-}
+]
 EXCEPTION_GUIS = {'Qt5', 'notify-send'}
 DEFAULT_EXCEPTION_GUI = None
 HAS_NOTIFY_SEND = shutil.which('notify-send') is not None
@@ -56,11 +56,8 @@ class Config:
             self.json_dict = json.load(file)
         jsonschema.validate(self.json_dict, self.get_schema())
 
-        self.user_agent = (self.json_dict['user_agent'] if 'user_agent' in self.json_dict
-                           else random.choice(USER_AGENTS))
-
         self.exception_gui = self.json_dict.get('exception_gui', DEFAULT_EXCEPTION_GUI)
-        if self.exception_gui == 'Qt5' and self.pyqt_qapplication is None:
+        if self.exception_gui == 'Qt5':
             try:
                 import PyQt5
             except ImportError as error:
@@ -77,6 +74,8 @@ class Config:
         for feed in self.json_dict['feeds']:
             feed_name = feed['name']
             url = feed['url']
+            user_agent = (feed['user_agent'] if 'user_agent' in feed
+                          else random.choice(USER_AGENTS))
             feed_enabled = feed.get('enabled', DEFAULT_FEED_ENABLED)
 
             subscriptions = {}
@@ -97,9 +96,9 @@ class Config:
                 command = Command(sub['command']) if 'command' in sub else DEFAULT_COMMAND
                 sub_enabled = sub.get('enabled', DEFAULT_SUBSCRIPTION_ENABLED)
 
-                subsriptions[sub_name] = Subscription(sub_name, regex, directory,
-                                                      command, sub_enabled)
-            self.feeds[feed_name] = Feed(feed_name, url, feed_enabled, subscriptions)
+                subscriptions[sub_name] = Subscription(sub_name, regex, directory,
+                                                       command, sub_enabled)
+            self.feeds[feed_name] = Feed(feed_name, url, user_agent, feed_enabled, subscriptions)
 
     def __repr__(self):
         return '{}(path={!r})'.format(type(self).__name__, self.path)
@@ -116,12 +115,12 @@ class Config:
             yield
         except Exception as error:
             if self.exception_gui is not None:
-                text = '{} encountered {!r} exception.'.format(NAME, type(exception))
+                text = '{} encountered {!r} exception.'.format(NAME, type(error))
                 error_traceback = traceback.format_exc()
                 if self.exception_gui == 'notify-send':
                     self.show_error_notification(text, error_traceback)
                 elif self.exception_gui == 'Qt5':
-                    self.show_pyqt5_error_messagebox(text, error_traceback)
+                    self.show_error_pyqt5_messagebox(text, error_traceback)
             raise
 
     @staticmethod
@@ -139,11 +138,11 @@ class Config:
 
         messagebox.exec_()
         if messagebox.clickedButton() == open_button:
-            startfile(log_path)
+            startfile(LOG_PATH)
 
     @staticmethod
     def show_error_notification(text):
-        message = '{} Click to open log file:\n{}'.format(text, log_path.as_uri())
+        message = '{} Click to open log file:\n{}'.format(text, LOG_PATH.as_uri())
         subprocess.Popen(['notify-send', '--app-name', NAME, NAME, message])
 
     def run(self):
@@ -159,8 +158,9 @@ class Config:
                 # The latter seems like an ok workaround at first, since it would yield 3 before 4,
                 # but if 4 were added to the rss before 3 for some reason, it would still break.
                 for subscription, entry, number in list(feed.matching_subscriptions()):
-                    torrent_path = subscription.download(entry)
-                    logging.info('%r downloaded to %r', entry.link, torrent_path)
+                    torrent_bytes = feed.download_entry(entry)
+                    torrent_path = subscription.create_torrent_file(torrent_bytes, entry.title)
+                    logging.info('%r downloaded to %r', entry.title, torrent_path)
                     subscription.command(torrent_path)
                     logging.info('%r launched with %r', torrent_path, subscription.command)
                     if subscription.has_lower_number_than(number):
@@ -181,14 +181,20 @@ class Command:
             startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
         else:
             startupinfo = None
-        arguments = [self.path_replacement_regex.sub(path, argument)
+        # The re.sub call's repl parameter here is a function which at first looks like it could
+        # just be a string, but it actually needs to be a function or else escapes in the string
+        # would be processed, leading to problems when dealing with file paths, for example.
+        # See: https://docs.python.org/3.5/library/re.html#re.sub
+        #      https://stackoverflow.com/a/16291763/3289208
+        arguments = [self.path_replacement_regex.sub(lambda match: str(path), argument)
                      for argument in self.arguments]
         return subprocess.Popen(arguments, startupinfo=startupinfo)
 
 class Feed:
-    def __init__(self, name, url, enabled, subscriptions):
+    def __init__(self, name, url, user_agent, enabled, subscriptions):
         self.name = name
         self.url = url
+        self.user_agent = user_agent
         self.enabled = enabled
         self.subscriptions = subscriptions
 
@@ -239,6 +245,26 @@ class Feed:
         except StopIteration:
             return False
 
+    @staticmethod
+    def torrent_link_for(rss_entry):
+        for link in rss_entry.links:
+            if link.type == TORRENT_MIMETYPE:
+                logging.debug('First link of entry %r with mimetype %r: %s',
+                              rss_entry.title, TORRENT_MIMETYPE, link.href)
+                return link.href
+        logging.info('Entry %r has no link with mimetype %r; returning first link: %s',
+                     rss_entry.title, TORRENT_MIMETYPE, rss_entry.link)
+        return rss_entry.link
+
+    def download_entry(self, rss_entry):
+        link = self.torrent_link_for(rss_entry)
+        headers = {} if self.user_agent is None else {'User-Agent': self.user_agent}
+        logging.debug('Sending GET request to %r with headers %s', link, headers)
+        response = requests.get(link, headers=headers)
+        logging.debug("Response status code is %s, 'ok' is %s", response.status_code, response.ok)
+        response.raise_for_status()
+        return response.content
+
 class Subscription:
     windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\| ]')
 
@@ -249,7 +275,7 @@ class Subscription:
         self.command = command
         self.enabled = enabled
 
-        self.number_file_path = self.windows_safe_filename(CONFIG_DIR / self.name+'.number')
+        self.number_file_path = self.windows_safe_filename(CONFIG_DIR / (self.name+'.number'))
         self._number = None
 
     def __repr__(self):
@@ -284,28 +310,10 @@ class Subscription:
     def has_lower_number_than(self, other_number):
         return self.number is None or self.number < other_number
 
-    @staticmethod
-    def torrent_link_for(rss_entry):
-        for link in rss_entry.links:
-            if link.type == TORRENT_MIMETYPE:
-                logging.debug('First link of entry %r with mimetype %r: %s',
-                              rss_entry.title, TORRENT_MIMETYPE, link.href)
-                return link.href
-        logging.info('Entry %r has no link with mimetype %r; returning first link: %s',
-                     rss_entry.title, TORRENT_MIMETYPE, rss_entry.link)
-        return rss_entry.link
-
-    def download(self, rss_entry):
-        link = self.torrent_link_for(rss_entry)
-        headers = {} if self.user_agent is None else {'User-Agent': self.user_agent}
-        logging.debug('Sending GET request to %r with headers %s', link, headers)
-        response = requests.get(link, headers=headers)
-        logging.debug("Response status code is %s, 'ok' is %s", response.status_code, response.ok)
-        response.raise_for_status()
-
+    def create_torrent_file(self, torrent_bytes, filename):
         self.directory.mkdir(parents=True, exist_ok=True)
-        path = self.windows_safe_filename(self.directory / rss_entry.title+'.torrent')
-        path.write_bytes(response.content)
+        path = self.windows_safe_filename(self.directory / (filename+'.torrent'))
+        path.write_bytes(torrent_bytes)
         logging.debug('Wrote response content to %r', path)
         return path
 
@@ -316,14 +324,15 @@ def configure_logging(file_logging_level, console_logging_level):
     file_handler = logging.FileHandler(str(LOG_PATH))
     file_handler.setLevel(file_logging_level)
 
-    logging.basicConfig(format=LOG_MESSAGE_FORMAT, handlers=[file_handler, console_handler])
+    logging.basicConfig(format=LOG_MESSAGE_FORMAT, level=file_logging_level,
+                        handlers=[file_handler, console_handler])
 
 @contextlib.contextmanager
 def exception_logging():
     try:
         yield
     except Exception as error:
-        logging.exception('%r', type(error))
+        logging.exception(type(error))
         raise
 
 def logging_level_from_string(context, parameter, value):
