@@ -27,7 +27,7 @@ CONFIG_PATH = CONFIG_DIR / 'config.json'
 LOG_DIR = CONFIG_DIR / 'logs'
 
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
-DEFAULT_LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d_%H-%M.log'
+DEFAULT_LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
 
 # TODO: better means of fetching common user agents
 USER_AGENTS = [
