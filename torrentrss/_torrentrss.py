@@ -19,6 +19,7 @@ import pkg_resources
 
 NAME = 'torrentrss'
 CONFIG_DIR = pathlib.Path(click.get_app_dir(NAME))
+CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_PATH = CONFIG_DIR / 'config.json'
 
 WINDOWS = os.name == 'nt'
@@ -34,11 +35,11 @@ USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:42.0) Gecko/20100101 Firefox/42.0',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_1) AppleWebKit/601.2.7 (KHTML, like Gecko) Version/9.0.1 Safari/601.2.7'
 ]
-EXCEPTION_GUIS = {'Qt5', 'notify-send'}
+EXCEPTION_GUIS = ['Qt5', 'notify-send']
 DEFAULT_EXCEPTION_GUI = None
 HAS_NOTIFY_SEND = shutil.which('notify-send') is not None
 DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = True
-DEFAULT_DIRECTORY = pathlib.Path(tempfile.gettempdir())
+TEMP_DIRECTORY = pathlib.Path(tempfile.gettempdir())
 # click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
 # hence os.startfile is preferred for that platform.
 COMMAND_PATH_ARGUMENT = '$PATH'
@@ -87,13 +88,14 @@ class Config:
                 try:
                     regex = re.compile(pattern)
                 except re.error as error:
-                    raise ConfigError('Feed {!r} subscription {!r} pattern {!r} not valid regex: {}'
+                    raise ConfigError("Feed {!r} subscription {!r} pattern '{}' not valid regex: {}"
                                       .format(feed_name, sub_name, pattern, ' - '.join(error.args))) from error
                 if NUMBER_REGEX_GROUP not in regex.groupindex:
-                    raise ConfigError('Feed {!r} subscription {!r} pattern {!r} has no {!r} group'
+                    raise ConfigError("Feed {!r} subscription {!r} pattern '{}' has no {!r} group"
                                       .format(feed_name, sub_name, pattern, NUMBER_REGEX_GROUP))
 
-                directory = pathlib.Path(sub['directory']) if 'directory' in sub else DEFAULT_DIRECTORY
+                directory = (pathlib.Path(sub['directory']) if 'directory' in sub
+                             else TEMP_DIRECTORY)
                 command = (Command(sub_name, sub['command']) if 'command' in sub
                            else StartFileCommand(sub_name))
                 sub_enabled = sub.get('enabled', DEFAULT_SUBSCRIPTION_ENABLED)
@@ -343,11 +345,12 @@ class Subscription:
         logging.debug("Subscription %r: wrote response bytes to file '%s'", self.name, path)
         return path
 
-def configure_logging(file_logging_level, console_logging_level):
+def configure_logging(path, file_logging_level, console_logging_level):
     console_handler = logging.StreamHandler()
     console_handler.setLevel(console_logging_level)
 
-    file_handler = logging.FileHandler(str(LOG_PATH))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.FileHandler(str(path))
     file_handler.setLevel(file_logging_level)
 
     logging.basicConfig(format=LOG_MESSAGE_FORMAT, level=file_logging_level,
@@ -373,13 +376,13 @@ logging_level_choice = click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITI
               callback=logging_level_from_string)
 @click.version_option()
 def main(file_logging_level, console_logging_level):
-    configure_logging(file_logging_level, console_logging_level)
+    configure_logging(LOG_PATH, file_logging_level, console_logging_level)
 
     with exception_logging():
         try:
             config = Config()
         except FileNotFoundError as error:
-            raise click.Abort('No config file found at {!r}. See the schema in the package.'
+            raise click.Abort('No config file found at {}. See the schema in the package.'
                               .format(CONFIG_PATH)) from error
         with config.errors_shown_as_gui():
             config.check_feeds()
