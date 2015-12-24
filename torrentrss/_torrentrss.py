@@ -38,7 +38,7 @@ USER_AGENTS = [
 EXCEPTION_GUIS = ['Qt5', 'notify-send']
 DEFAULT_EXCEPTION_GUI = None
 HAS_NOTIFY_SEND = shutil.which('notify-send') is not None
-DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = True
+DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = DEFAULT_MAGNET_ENABLED = True
 TEMP_DIRECTORY = pathlib.Path(tempfile.gettempdir())
 COMMAND_PATH_ARGUMENT = '$PATH'
 NUMBER_REGEX_GROUP = 'number'
@@ -77,6 +77,7 @@ class Config:
             user_agent = (feed['user_agent'] if 'user_agent' in feed
                           else random.choice(USER_AGENTS))
             feed_enabled = feed.get('enabled', DEFAULT_FEED_ENABLED)
+            magnet_enabled = feed.get('magnet_enabled', DEFAULT_MAGNET_ENABLED)
 
             subscriptions = {}
             for sub in feed['subscriptions']:
@@ -100,7 +101,8 @@ class Config:
 
                 subscriptions[sub_name] = Subscription(sub_name, regex, directory,
                                                        command, sub_enabled)
-            self.feeds[feed_name] = Feed(feed_name, url, user_agent, feed_enabled, subscriptions)
+            self.feeds[feed_name] = Feed(feed_name, url, user_agent, feed_enabled,
+                                         magnet_enabled, subscriptions)
 
     def __repr__(self):
         return '{}(path={!r})'.format(type(self).__name__, self.path)
@@ -162,9 +164,8 @@ class Config:
                 # The latter seems like an ok workaround at first, since it would yield 3 before 4,
                 # but if 4 were added to the rss before 3 for some reason, it would still break.
                 for subscription, entry, number in list(feed.matching_subscriptions()):
-                    torrent_bytes = feed.download_entry(entry)
-                    torrent_path = subscription.create_torrent_file(torrent_bytes, entry.title)
-                    subscription.command(torrent_path)
+                    path_or_magnet = feed.download_entry(entry, subscription.directory)
+                    subscription.command(path_or_magnet)
                     if subscription.has_lower_number_than(number):
                         subscription.number = number
 
@@ -206,17 +207,15 @@ class StartFileCommand(Command):
     def __call__(self, path):
         logging.debug("Subscription %r: launching '%s' with default program",
                       subscription_name, path)
-        if WINDOWS:
-            os.startfile(path)
-        else:
-            click.launch(path)
+        startfile(path)
 
 class Feed:
-    def __init__(self, name, url, user_agent, enabled, subscriptions):
+    def __init__(self, name, url, user_agent, enabled, magnet_enabled, subscriptions):
         self.name = name
         self.url = url
         self.user_agent = user_agent
         self.enabled = enabled
+        self.magnet_enabled = magnet_enabled
         self.subscriptions = subscriptions
 
     def __repr__(self):
@@ -267,7 +266,7 @@ class Feed:
             return False
 
     @staticmethod
-    def torrent_link_for(rss_entry):
+    def torrent_link_for_entry(rss_entry):
         for link in rss_entry.links:
             if link.type == TORRENT_MIMETYPE:
                 logging.debug('Entry %r: first link with mimetype %r is %r',
@@ -277,8 +276,13 @@ class Feed:
                      rss_entry.title, TORRENT_MIMETYPE, rss_entry.link)
         return rss_entry.link
 
-    def download_entry(self, rss_entry):
-        link = self.torrent_link_for(rss_entry)
+    def download_entry(self, rss_entry, directory):
+        if self.magnet_enabled and hasattr(rss_entry, 'torrent_magneturi'):
+            logging.debug('Entry %r: has magnet link %r',
+                          rss_entry.title, rss_entry.torrent_magneturi)
+            return rss_entry.torrent_magneturi
+
+        link = self.torrent_link_for_entry(rss_entry)
         headers = {} if self.user_agent is None else {'User-Agent': self.user_agent}
         logging.debug('Feed %r: sending GET request to %r with headers %s',
                       self.name, link, headers)
@@ -286,11 +290,14 @@ class Feed:
         logging.debug("Feed %r: response status code is %s, 'ok' is %s",
                       self.name, response.status_code, response.ok)
         response.raise_for_status()
-        return response.content
+
+        directory.mkdir(parents=True, exist_ok=True)
+        path = windows_safe_path(directory / (rss_entry.title+'.torrent'))
+        path.write_bytes(response.content)
+        logging.debug("Feed %r: wrote response bytes to file '%s'", self.name, path)
+        return str(path)
 
 class Subscription:
-    windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\| ]')
-
     def __init__(self, name, regex, directory, command, enabled):
         self.name = name
         self.regex = regex
@@ -298,19 +305,13 @@ class Subscription:
         self.command = command
         self.enabled = enabled
 
-        self.number_file_path = self.windows_safe_path(CONFIG_DIR / 'episode_numbers' / self.name)
+        self.number_file_path = windows_safe_path(CONFIG_DIR / 'episode_numbers' / self.name)
         self._number = None
 
     def __repr__(self):
         return ('{}(name={!r}, pattern={!r}, directory={!r}, command={!r}, number={})'
                 .format(type(self).__name__, self.name, self.regex.pattern,
                         self.directory, self.command, self.number))
-
-    def windows_safe_path(self, path):
-        if WINDOWS:
-            new_name = self.windows_forbidden_characters_regex.sub('_', path.name)
-            return path.with_name(new_name)
-        return path
 
     @property
     def number(self):
@@ -336,12 +337,14 @@ class Subscription:
     def has_lower_number_than(self, other_number):
         return self.number is None or self.number < other_number
 
-    def create_torrent_file(self, torrent_bytes, filename):
-        self.directory.mkdir(parents=True, exist_ok=True)
-        path = self.windows_safe_path(self.directory / (filename+'.torrent'))
-        path.write_bytes(torrent_bytes)
-        logging.debug("Subscription %r: wrote response bytes to file '%s'", self.name, path)
-        return path
+startfile = os.startfile if WINDOWS else click.launch
+
+windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\| ]')
+def windows_safe_path(path):
+    if WINDOWS:
+        new_name = windows_forbidden_characters_regex.sub('_', path.name)
+        return path.with_name(new_name)
+    return path
 
 def configure_logging(log_path_format, file_logging_level, console_logging_level):
     console_handler = logging.StreamHandler()
@@ -386,3 +389,5 @@ def main(log_path_format, file_logging_level, console_logging_level):
                               .format(CONFIG_PATH)) from error
         with config.errors_shown_as_gui():
             config.check_feeds()
+
+#TODO: magnets

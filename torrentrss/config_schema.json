@@ -26,6 +26,10 @@
 						"description": "Considered true if missing",
 						"type": "boolean"
 					},
+					"magnet_enabled": {
+						"description": "If true, magnet links are used instead of torrent files if possible. Considered true if missing",
+						"type": "boolean"
+					},
 					"subscriptions": {
 						"type": "array",
 						"items": {
@@ -43,7 +47,7 @@
 									"type": "string"
 								},
 								"command": {
-									"description": "Command run after the torrent file is downloaded. '$PATH' is substituted for the torrent file's path. If missing, the file is launched with the default program for opening torrent files.",
+									"description": "Command run after the torrent file is downloaded. '$PATH' is substituted for the torrent file's path, or the magnet link if that option is enabled. If missing, the file is launched with the default program for opening torrent files or magnet links.",
 									"type": "array",
 									"items": {
 										"type": "string"
