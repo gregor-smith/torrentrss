@@ -240,7 +240,7 @@ class Feed:
     def matching_subscriptions(self):
         rss = self.fetch()
         for subscription in self.enabled_subscriptions():
-            logging.debug("Subscription %r: checking entries against pattern '%s'",
+            logging.debug("Subscription %r: checking entries against pattern: %s",
                           subscription.name, subscription.regex.pattern)
             for index, entry in enumerate(rss.entries):
                 match = subscription.regex.search(entry.title)
@@ -280,10 +280,11 @@ class Feed:
     def download_entry(self, rss_entry):
         link = self.torrent_link_for(rss_entry)
         headers = {} if self.user_agent is None else {'User-Agent': self.user_agent}
-        logging.debug('Feed %r: sending GET request to %r with headers %s', link, headers)
+        logging.debug('Feed %r: sending GET request to %r with headers %s',
+                      self.name, link, headers)
         response = requests.get(link, headers=headers)
         logging.debug("Feed %r: response status code is %s, 'ok' is %s",
-                      response.status_code, response.ok)
+                      self.name, response.status_code, response.ok)
         response.raise_for_status()
         return response.content
 
@@ -337,9 +338,9 @@ class Subscription:
 
     def create_torrent_file(self, torrent_bytes, filename):
         self.directory.mkdir(parents=True, exist_ok=True)
-        path = self.windows_safe_filename(self.directory / (filename+'.torrent'))
+        path = self.windows_safe_path(self.directory / (filename+'.torrent'))
         path.write_bytes(torrent_bytes)
-        logging.debug("Subscription %r: wrote response bytes to file '%s'", path)
+        logging.debug("Subscription %r: wrote response bytes to file '%s'", self.name, path)
         return path
 
 def configure_logging(file_logging_level, console_logging_level):
