@@ -41,7 +41,6 @@ DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = True
 DEFAULT_DIRECTORY = pathlib.Path(tempfile.gettempdir())
 # click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
 # hence os.startfile is preferred for that platform.
-DEFAULT_COMMAND = startfile = os.startfile if WINDOWS else click.launch
 COMMAND_PATH_ARGUMENT = '$PATH'
 NUMBER_REGEX_GROUP = 'number'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
@@ -58,6 +57,8 @@ class Config:
 
         self.exception_gui = self.json_dict.get('exception_gui', DEFAULT_EXCEPTION_GUI)
         if self.exception_gui == 'Qt5':
+            # PyQt5 is only imported on demand as it's fairly hefty. Doing as below avoids
+            # unnecessarily long startup times in cases where it's installed but isn't to be used.
             try:
                 import PyQt5
             except ImportError as error:
@@ -93,7 +94,8 @@ class Config:
                                       .format(feed_name, sub_name, pattern, NUMBER_REGEX_GROUP))
 
                 directory = pathlib.Path(sub['directory']) if 'directory' in sub else DEFAULT_DIRECTORY
-                command = Command(sub['command']) if 'command' in sub else DEFAULT_COMMAND
+                command = (Command(sub_name, sub['command']) if 'command' in sub
+                           else StartFileCommand(sub_name))
                 sub_enabled = sub.get('enabled', DEFAULT_SUBSCRIPTION_ENABLED)
 
                 subscriptions[sub_name] = Subscription(sub_name, regex, directory,
@@ -127,6 +129,8 @@ class Config:
     def show_error_pyqt5_messagebox(text, error_traceback):
         import PyQt5.QtWidgets
 
+        qapplication = PyQt5.QtWidgets.QApplication([])
+
         messagebox = PyQt5.QtWidgets.QMessageBox()
         messagebox.setWindowTitle(NAME)
         messagebox.setText(text)
@@ -145,7 +149,7 @@ class Config:
         message = '{} Click to open log file:\n{}'.format(text, LOG_PATH.as_uri())
         subprocess.Popen(['notify-send', '--app-name', NAME, NAME, message])
 
-    def run(self):
+    def check_feeds(self):
         for feed in self.feeds.values():
             if feed.enabled and feed.has_any_enabled_subscriptions():
                 # List is called here as otherwise subscription.number would be updated during the
@@ -160,20 +164,20 @@ class Config:
                 for subscription, entry, number in list(feed.matching_subscriptions()):
                     torrent_bytes = feed.download_entry(entry)
                     torrent_path = subscription.create_torrent_file(torrent_bytes, entry.title)
-                    logging.info('%r downloaded to %r', entry.title, torrent_path)
                     subscription.command(torrent_path)
-                    logging.info('%r launched with %r', torrent_path, subscription.command)
                     if subscription.has_lower_number_than(number):
                         subscription.number = number
 
 class Command:
     path_replacement_regex = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
 
-    def __init__(self, arguments):
+    def __init__(self, subscription_name, arguments):
+        self.subscription_name = subscription_name
         self.arguments = arguments
 
     def __repr__(self):
-        return '{}(arguments={})'.format(type(self).__name__, self.arguments)
+        return ('{}(subscription_name={!r}, arguments={})'
+                .format(type(self).__name__, self.subscription_name, self.arguments))
 
     def __call__(self, path):
         if WINDOWS:
@@ -188,7 +192,24 @@ class Command:
         #      https://stackoverflow.com/a/16291763/3289208
         arguments = [self.path_replacement_regex.sub(lambda match: str(path), argument)
                      for argument in self.arguments]
+        logging.info('Subscription %r: running command subprocess with arguments %s',
+                     self.subscription_name, arguments)
         return subprocess.Popen(arguments, startupinfo=startupinfo)
+
+class StartFileCommand(Command):
+    def __init__(self, subscription_name):
+        self.subscription_name = subscription_name
+
+    def __repr__(self):
+        return '{}(subscription_name={!r}'.format(self.subscription_name)
+
+    def __call__(self, path):
+        logging.debug("Subscription %r: launching '%s' with default program",
+                      subscription_name, path)
+        if WINDOWS:
+            os.startfile(path)
+        else:
+            click.launch(path)
 
 class Feed:
     def __init__(self, name, url, user_agent, enabled, subscriptions):
@@ -208,7 +229,7 @@ class Feed:
         if rss.bozo:
             logging.critical('Feed %r: error parsing url %r', self.name, self.url)
             raise rss.bozo_exception
-        logging.info('Feed %r: parsed url %r', self.name, self.url)
+        logging.info('Feed %r: downloaded url %r', self.name, self.url)
         return rss
 
     def enabled_subscriptions(self):
@@ -219,23 +240,23 @@ class Feed:
     def matching_subscriptions(self):
         rss = self.fetch()
         for subscription in self.enabled_subscriptions():
-            logging.debug('Checking entries against subscription %r', subscription.name)
+            logging.debug("Subscription %r: checking entries against pattern '%s'",
+                          subscription.name, subscription.regex.pattern)
             for index, entry in enumerate(rss.entries):
                 match = subscription.regex.search(entry.title)
                 if match:
                     number = pkg_resources.parse_version(match.group('number'))
                     if subscription.has_lower_number_than(number):
-                        logging.info('MATCH: Entry %s titled %r has greater number than '
-                                     'subscription %r; yielded: %s > %s', index, entry.title,
-                                     subscription.name, number, subscription.number)
+                        logging.info('MATCH: entry %s %r has greater number than subscription %r: '
+                                     '%s > %s', index, entry.title, subscription.name,
+                                     number, subscription.number)
                         yield subscription, entry, number
                     else:
-                        logging.debug('NO MATCH: Entry %s titled %r matches but number is smaller '
-                                      'than or equal to that of subscription %r; skipped: %s <= %s',
-                                      index, entry.title, subscription.name,
-                                      number, subscription.number)
+                        logging.debug('NO MATCH: entry %s %r matches but number less than or '
+                                      'equal to subscription %r: %s <= %s', index, entry.title,
+                                      subscription.name, number, subscription.number)
                 else:
-                    logging.debug('NO MATCH: Entry %s titled %r does not match subscription %r',
+                    logging.debug('NO MATCH: entry %s %r against subscription %r',
                                   index, entry.title, subscription.name)
 
     def has_any_enabled_subscriptions(self):
@@ -249,19 +270,20 @@ class Feed:
     def torrent_link_for(rss_entry):
         for link in rss_entry.links:
             if link.type == TORRENT_MIMETYPE:
-                logging.debug('First link of entry %r with mimetype %r: %s',
+                logging.debug('Entry %r: first link with mimetype %r is %r',
                               rss_entry.title, TORRENT_MIMETYPE, link.href)
                 return link.href
-        logging.info('Entry %r has no link with mimetype %r; returning first link: %s',
+        logging.info('Entry %r: no link with mimetype %r, returning first link %r',
                      rss_entry.title, TORRENT_MIMETYPE, rss_entry.link)
         return rss_entry.link
 
     def download_entry(self, rss_entry):
         link = self.torrent_link_for(rss_entry)
         headers = {} if self.user_agent is None else {'User-Agent': self.user_agent}
-        logging.debug('Sending GET request to %r with headers %s', link, headers)
+        logging.debug('Feed %r: sending GET request to %r with headers %s', link, headers)
         response = requests.get(link, headers=headers)
-        logging.debug("Response status code is %s, 'ok' is %s", response.status_code, response.ok)
+        logging.debug("Feed %r: response status code is %s, 'ok' is %s",
+                      response.status_code, response.ok)
         response.raise_for_status()
         return response.content
 
@@ -275,15 +297,15 @@ class Subscription:
         self.command = command
         self.enabled = enabled
 
-        self.number_file_path = self.windows_safe_filename(CONFIG_DIR / (self.name+'.number'))
+        self.number_file_path = self.windows_safe_path(CONFIG_DIR / 'episode_numbers' / self.name)
         self._number = None
 
     def __repr__(self):
-        return ('{}(name={!r}, feed={!r}, pattern={!r}, directory={!r}, command={!r}, number={})'
-                .format(type(self).__name__, self.name, self.feed.name,
-                        self.regex.pattern, self.directory, self.command, self.number))
+        return ('{}(name={!r}, pattern={!r}, directory={!r}, command={!r}, number={})'
+                .format(type(self).__name__, self.name, self.regex.pattern,
+                        self.directory, self.command, self.number))
 
-    def windows_safe_filename(self, path):
+    def windows_safe_path(self, path):
         if WINDOWS:
             new_name = self.windows_forbidden_characters_regex.sub('_', path.name)
             return path.with_name(new_name)
@@ -296,16 +318,19 @@ class Subscription:
                 with self.number_file_path.open() as file:
                     line = file.readline()
                 self._number = pkg_resources.parse_version(line)
-                logging.info('Parsed %r; returning %s', self.number_file_path, self._number)
+                logging.info("Subscription %r: got number %s from file '%s'",
+                             self.name, self._number, self.number_file_path)
             except FileNotFoundError:
-                logging.info('No number file found at %r; returning None', self.number_file_path)
+                logging.info("Subscription %r: no number file found at '%s', returning None",
+                             self.name, self.number_file_path)
         return self._number
 
     @number.setter
     def number(self, new_number):
         self._number = new_number
         self.number_file_path.write_text(str(new_number))
-        logging.info('Number %s written to file %r', new_number, self.number_file_path)
+        logging.info("Subscription %r: wrote number %s to file '%s'",
+                     self.name, new_number, self.number_file_path)
 
     def has_lower_number_than(self, other_number):
         return self.number is None or self.number < other_number
@@ -314,7 +339,7 @@ class Subscription:
         self.directory.mkdir(parents=True, exist_ok=True)
         path = self.windows_safe_filename(self.directory / (filename+'.torrent'))
         path.write_bytes(torrent_bytes)
-        logging.debug('Wrote response content to %r', path)
+        logging.debug("Subscription %r: wrote response bytes to file '%s'", path)
         return path
 
 def configure_logging(file_logging_level, console_logging_level):
@@ -356,4 +381,4 @@ def main(file_logging_level, console_logging_level):
             raise click.Abort('No config file found at {!r}. See the schema in the package.'
                               .format(CONFIG_PATH)) from error
         with config.errors_shown_as_gui():
-            config.run()
+            config.check_feeds()
