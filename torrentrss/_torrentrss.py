@@ -18,16 +18,16 @@ import jsonschema
 import pkg_resources
 
 NAME = 'torrentrss'
-CONFIG_DIR = pathlib.Path(click.get_app_dir(NAME))
-CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-CONFIG_PATH = CONFIG_DIR / 'config.json'
+VERSION = __version__ = '0.2'
 
 WINDOWS = os.name == 'nt'
 
-LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s]\n%(message)s'
-# TODO: command line or config option to change log path
-LOG_PATH_FORMAT = 'logs/{0:%Y}/{0:%m}/{0:%Y-%m-%d_%H-%M}.log'
-LOG_PATH = CONFIG_DIR / LOG_PATH_FORMAT.format(datetime.datetime.now())
+CONFIG_DIR = pathlib.Path(click.get_app_dir(NAME))
+CONFIG_PATH = CONFIG_DIR / 'config.json'
+LOG_DIR = CONFIG_DIR / 'logs'
+
+LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
+DEFAULT_LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d_%H-%M.log'
 
 # TODO: better means of fetching common user agents
 USER_AGENTS = [
@@ -40,8 +40,6 @@ DEFAULT_EXCEPTION_GUI = None
 HAS_NOTIFY_SEND = shutil.which('notify-send') is not None
 DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = True
 TEMP_DIRECTORY = pathlib.Path(tempfile.gettempdir())
-# click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
-# hence os.startfile is preferred for that platform.
 COMMAND_PATH_ARGUMENT = '$PATH'
 NUMBER_REGEX_GROUP = 'number'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
@@ -345,10 +343,11 @@ class Subscription:
         logging.debug("Subscription %r: wrote response bytes to file '%s'", self.name, path)
         return path
 
-def configure_logging(path, file_logging_level, console_logging_level):
+def configure_logging(log_path_format, file_logging_level, console_logging_level):
     console_handler = logging.StreamHandler()
     console_handler.setLevel(console_logging_level)
 
+    path = LOG_DIR / datetime.datetime.now().strftime(log_path_format)
     path.parent.mkdir(parents=True, exist_ok=True)
     file_handler = logging.FileHandler(str(path))
     file_handler.setLevel(file_logging_level)
@@ -370,19 +369,20 @@ def logging_level_from_string(context, parameter, value):
 logging_level_choice = click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
 
 @click.command()
-@click.option('--file-logging-level', type=logging_level_choice, default='DEBUG',
-              callback=logging_level_from_string)
-@click.option('--console-logging-level', type=logging_level_choice, default='INFO',
-              callback=logging_level_from_string)
-@click.version_option()
-def main(file_logging_level, console_logging_level):
-    configure_logging(LOG_PATH, file_logging_level, console_logging_level)
+@click.option('--log-path-format', default=DEFAULT_LOG_PATH_FORMAT, show_default=True)
+@click.option('--file-logging-level', type=logging_level_choice, show_default=True,
+              default='DEBUG', callback=logging_level_from_string)
+@click.option('--console-logging-level', type=logging_level_choice, show_default=True,
+              default='INFO', callback=logging_level_from_string)
+@click.version_option(VERSION)
+def main(log_path_format, file_logging_level, console_logging_level):
+    configure_logging(log_path_format, file_logging_level, console_logging_level)
 
     with exception_logging():
         try:
             config = Config()
         except FileNotFoundError as error:
-            raise click.Abort('No config file found at {}. See the schema in the package.'
+            raise click.Abort("No config file found at '{}'. See the schema in the package."
                               .format(CONFIG_PATH)) from error
         with config.errors_shown_as_gui():
             config.check_feeds()

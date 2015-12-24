@@ -59,8 +59,7 @@
 								"name",
 								"pattern"
 							]
-						},
-						"minItems": 1
+						}
 					}
 				},
 				"required": [
