@@ -139,16 +139,16 @@ class Config:
         messagebox.setDetailedText(error_traceback)
 
         ok_button = messagebox.addButton(messagebox.Ok)
-        open_button = messagebox.addButton('Open Log', messagebox.ActionRole)
+        open_button = messagebox.addButton('Open Log Dir', messagebox.ActionRole)
         messagebox.setDefaultButton(ok_button)
 
         messagebox.exec_()
         if messagebox.clickedButton() == open_button:
-            startfile(LOG_PATH)
+            startfile(LOG_DIR)
 
     @staticmethod
     def show_error_notification(text):
-        message = '{} Click to open log file:\n{}'.format(text, LOG_PATH.as_uri())
+        message = '{} Click to open log directory:\n{}'.format(text, LOG_DIR.as_uri())
         subprocess.Popen(['notify-send', '--app-name', NAME, NAME, message])
 
     def check_feeds(self):
@@ -337,6 +337,8 @@ class Subscription:
     def has_lower_number_than(self, other_number):
         return self.number is None or self.number < other_number
 
+# click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
+# hence os.startfile is preferred for that platform.
 startfile = os.startfile if WINDOWS else click.launch
 
 windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\| ]')
@@ -354,6 +356,10 @@ def configure_logging(log_path_format, file_logging_level, console_logging_level
     path.parent.mkdir(parents=True, exist_ok=True)
     file_handler = logging.FileHandler(str(path))
     file_handler.setLevel(file_logging_level)
+
+    # silence requests' logging in all but the worst cases
+    logging.getLogger('requests').setLevel(logging.WARNING)
+    logging.getLogger('urllib3').setLevel(logging.WARNING)
 
     logging.basicConfig(format=LOG_MESSAGE_FORMAT, level=file_logging_level,
                         handlers=[file_handler, console_handler])
@@ -389,5 +395,3 @@ def main(log_path_format, file_logging_level, console_logging_level):
                               .format(CONFIG_PATH)) from error
         with config.errors_shown_as_gui():
             config.check_feeds()
-
-#TODO: magnets
