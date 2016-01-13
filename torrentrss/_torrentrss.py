@@ -372,17 +372,14 @@ def exception_logging():
         logging.exception(type(error))
         raise
 
-def logging_level_from_string(context, parameter, value):
-    return getattr(logging, value)
-
 logging_level_choice = click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
 
 @click.command()
 @click.option('--log-path-format', default=DEFAULT_LOG_PATH_FORMAT, show_default=True)
 @click.option('--file-logging-level', type=logging_level_choice, show_default=True,
-              default='DEBUG', callback=logging_level_from_string)
+              default='DEBUG')
 @click.option('--console-logging-level', type=logging_level_choice, show_default=True,
-              default='INFO', callback=logging_level_from_string)
+              default='INFO')
 @click.version_option(VERSION)
 def main(log_path_format, file_logging_level, console_logging_level):
     configure_logging(log_path_format, file_logging_level, console_logging_level)
