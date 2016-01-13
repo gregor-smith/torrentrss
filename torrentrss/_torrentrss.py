@@ -15,6 +15,7 @@ import click
 import requests
 import feedparser
 import jsonschema
+import exception_gui
 import pkg_resources
 
 NAME = 'torrentrss'
@@ -35,7 +36,8 @@ USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:42.0) Gecko/20100101 Firefox/42.0',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_1) AppleWebKit/601.2.7 (KHTML, like Gecko) Version/9.0.1 Safari/601.2.7'
 ]
-EXCEPTION_GUIS = ['Qt5', 'notify-send']
+QT_EXCEPTION_GUIS = ['PyQt4', 'PyQt5', 'PySide']
+EXCEPTION_GUIS = [*QT_EXCEPTION_GUIS, 'notify-send']
 DEFAULT_EXCEPTION_GUI = None
 HAS_NOTIFY_SEND = shutil.which('notify-send') is not None
 DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = DEFAULT_MAGNET_ENABLED = True
@@ -55,54 +57,55 @@ class Config:
         jsonschema.validate(self.json_dict, self.get_schema())
 
         self.exception_gui = self.json_dict.get('exception_gui', DEFAULT_EXCEPTION_GUI)
-        if self.exception_gui == 'Qt5':
-            # PyQt5 is only imported on demand as it's fairly hefty. Doing as below avoids
+        if self.exception_gui in QT_EXCEPTION_GUIS:
+            # Qt is only imported on demand as it's fairly hefty. Doing as below avoids
             # unnecessarily long startup times in cases where it's installed but isn't to be used.
             try:
-                import PyQt5
+                __import__(self.exception_gui)
             except ImportError as error:
-                raise ConfigError("'exception_gui' is 'Qt5' but PyQt5 failed to import: {}"
-                                  .format(' - '.join(error.args))) from error
+                raise ConfigError("'exception_gui' is {!r} but it failed to import: {}"
+                                  .format(self.exception_gui, ' - '.join(error.args))) from error
         elif self.exception_gui == 'notify-send' and not HAS_NOTIFY_SEND:
-            raise ConfigError("'exception_gui' is 'notify-send' but notify-send"
+            raise ConfigError("'exception_gui' is 'notify-send' but it"
                               'could not be found on the PATH')
         elif self.exception_gui is not None:
             raise ConfigError("'exception_gui' {!r} unknown. Must be one of {}"
                               .format(EXCEPTION_GUIS))
 
-        self.feeds = {}
-        for feed in self.json_dict['feeds']:
-            feed_name = feed['name']
-            url = feed['url']
-            user_agent = (feed['user_agent'] if 'user_agent' in feed
-                          else random.choice(USER_AGENTS))
-            feed_enabled = feed.get('enabled', DEFAULT_FEED_ENABLED)
-            magnet_enabled = feed.get('magnet_enabled', DEFAULT_MAGNET_ENABLED)
+        with self.exceptions_shown_as_gui():
+            self.feeds = {}
+            for feed in self.json_dict['feeds']:
+                feed_name = feed['name']
+                url = feed['url']
+                user_agent = (feed['user_agent'] if 'user_agent' in feed
+                              else random.choice(USER_AGENTS))
+                feed_enabled = feed.get('enabled', DEFAULT_FEED_ENABLED)
+                magnet_enabled = feed.get('magnet_enabled', DEFAULT_MAGNET_ENABLED)
 
-            subscriptions = {}
-            for sub in feed['subscriptions']:
-                sub_name = sub['name']
+                subscriptions = {}
+                for sub in feed['subscriptions']:
+                    sub_name = sub['name']
 
-                pattern = sub['pattern']
-                try:
-                    regex = re.compile(pattern)
-                except re.error as error:
-                    raise ConfigError("Feed {!r} subscription {!r} pattern '{}' not valid regex: {}"
-                                      .format(feed_name, sub_name, pattern, ' - '.join(error.args))) from error
-                if NUMBER_REGEX_GROUP not in regex.groupindex:
-                    raise ConfigError("Feed {!r} subscription {!r} pattern '{}' has no {!r} group"
-                                      .format(feed_name, sub_name, pattern, NUMBER_REGEX_GROUP))
+                    pattern = sub['pattern']
+                    try:
+                        regex = re.compile(pattern)
+                    except re.error as error:
+                        raise ConfigError("Feed {!r} subscription {!r} pattern '{}' not valid regex: {}"
+                                          .format(feed_name, sub_name, pattern, ' - '.join(error.args))) from error
+                    if NUMBER_REGEX_GROUP not in regex.groupindex:
+                        raise ConfigError("Feed {!r} subscription {!r} pattern '{}' has no {!r} group"
+                                          .format(feed_name, sub_name, pattern, NUMBER_REGEX_GROUP))
 
-                directory = (pathlib.Path(sub['directory']) if 'directory' in sub
-                             else TEMP_DIRECTORY)
-                command = (Command(sub_name, sub['command']) if 'command' in sub
-                           else StartFileCommand(sub_name))
-                sub_enabled = sub.get('enabled', DEFAULT_SUBSCRIPTION_ENABLED)
+                    directory = (pathlib.Path(sub['directory']) if 'directory' in sub
+                                 else TEMP_DIRECTORY)
+                    command = (Command(sub_name, sub['command']) if 'command' in sub
+                               else StartFileCommand(sub_name))
+                    sub_enabled = sub.get('enabled', DEFAULT_SUBSCRIPTION_ENABLED)
 
-                subscriptions[sub_name] = Subscription(sub_name, regex, directory,
-                                                       command, sub_enabled)
-            self.feeds[feed_name] = Feed(feed_name, url, user_agent, feed_enabled,
-                                         magnet_enabled, subscriptions)
+                    subscriptions[sub_name] = Subscription(sub_name, regex, directory,
+                                                           command, sub_enabled)
+                self.feeds[feed_name] = Feed(feed_name, url, user_agent, feed_enabled,
+                                             magnet_enabled, subscriptions)
 
     def __repr__(self):
         return '{}(path={!r})'.format(type(self).__name__, self.path)
@@ -114,43 +117,25 @@ class Config:
         return json.loads(schema_string)
 
     @contextlib.contextmanager
-    def errors_shown_as_gui(self):
+    def exceptions_shown_as_gui(self):
         try:
             yield
-        except Exception as error:
-            if self.exception_gui is not None:
-                text = '{} encountered {!r} exception.'.format(NAME, type(error))
-                error_traceback = traceback.format_exc()
-                if self.exception_gui == 'notify-send':
-                    self.show_error_notification(text, error_traceback)
-                elif self.exception_gui == 'Qt5':
-                    self.show_error_pyqt5_messagebox(text, error_traceback)
+        except Exception:
+            if self.exception_gui in QT_EXCEPTION_GUIS:
+                function = exception_gui.functions[self.exception_gui]
+                function(application_name=NAME,
+                         text='An exception occured. Details below.',
+                         detailed_text=traceback.format_exc(),
+                         open_button_text='Open log directory',
+                         open_button_function=lambda: startfile(str(LOG_DIR)))
+            elif self.exception_gui == 'notify-send':
+                exception_gui.notification(application_name=NAME,
+                                           text=('{} raised an exception. '
+                                                 'Click to open log directory.').format(NAME),
+                                           log_path=str(LOG_DIR))
             raise
 
-    @staticmethod
-    def show_error_pyqt5_messagebox(text, error_traceback):
-        import PyQt5.QtWidgets
-
-        qapplication = PyQt5.QtWidgets.QApplication([])
-
-        messagebox = PyQt5.QtWidgets.QMessageBox()
-        messagebox.setWindowTitle(NAME)
-        messagebox.setText(text)
-        messagebox.setDetailedText(error_traceback)
-
-        ok_button = messagebox.addButton(messagebox.Ok)
-        open_button = messagebox.addButton('Open Log Dir', messagebox.ActionRole)
-        messagebox.setDefaultButton(ok_button)
-
-        messagebox.exec_()
-        if messagebox.clickedButton() == open_button:
-            startfile(LOG_DIR)
-
-    @staticmethod
-    def show_error_notification(text):
-        message = '{} Click to open log directory:\n{}'.format(text, LOG_DIR.as_uri())
-        subprocess.Popen(['notify-send', '--app-name', NAME, NAME, message])
-
+    @exceptions_shown_as_gui
     def check_feeds(self):
         for feed in self.feeds.values():
             if feed.enabled and feed.has_any_enabled_subscriptions():
@@ -159,10 +144,7 @@ class Config:
                 # so if a subscription's number was originally 2 and there were entries with 4 and 3,
                 # 4 would become the subscription's number, and because 4 > 3, 3 would be skipped.
                 # Calling list first checks all entries against the subscription's original number,
-                # avoiding this problem. The alternatives were to update numbers in another loop
-                # afterwards, or to call reversed first on rss.entries in feed.matching_subscriptions.
-                # The latter seems like an ok workaround at first, since it would yield 3 before 4,
-                # but if 4 were added to the rss before 3 for some reason, it would still break.
+                # avoiding this problem.
                 for subscription, entry, number in list(feed.matching_subscriptions()):
                     path_or_magnet = feed.download_entry(entry, subscription.directory)
                     subscription.command(path_or_magnet)
@@ -219,9 +201,8 @@ class Feed:
         self.subscriptions = subscriptions
 
     def __repr__(self):
-        return ('{}(name={!r}, url={!r}, interval_minutes={}, subscriptions={})'
-                .format(type(self).__name__, self.name, self.url,
-                        self.interval_minutes, self.subscriptions.keys()))
+        return ('{}(name={!r}, url={!r}, subscriptions={})'
+                .format(type(self).__name__, self.name, self.url, self.subscriptions.keys()))
 
     def fetch(self):
         rss = feedparser.parse(self.url)
@@ -309,9 +290,9 @@ class Subscription:
         self._number = None
 
     def __repr__(self):
-        return ('{}(name={!r}, pattern={!r}, directory={!r}, command={!r}, number={})'
+        return ('{}(name={!r}, pattern={!r}, directory={!r}, command={!r}, enabled={}, number={})'
                 .format(type(self).__name__, self.name, self.regex.pattern,
-                        self.directory, self.command, self.number))
+                        self.directory, self.command, self.enabled, self.number))
 
     @property
     def number(self):
@@ -390,5 +371,4 @@ def main(log_path_format, file_logging_level, console_logging_level):
         except FileNotFoundError as error:
             raise click.Abort("No config file found at '{}'. See the schema in the package."
                               .format(CONFIG_PATH)) from error
-        with config.errors_shown_as_gui():
-            config.check_feeds()
+        config.check_feeds()
