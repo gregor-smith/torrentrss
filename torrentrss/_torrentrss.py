@@ -135,21 +135,21 @@ class Config:
                                            log_path=str(LOG_DIR))
             raise
 
-    @exceptions_shown_as_gui
     def check_feeds(self):
-        for feed in self.feeds.values():
-            if feed.enabled and feed.has_any_enabled_subscriptions():
-                # List is called here as otherwise subscription.number would be updated during the
-                # loop before being checked by the next iteration of feed.matching_subscriptions,
-                # so if a subscription's number was originally 2 and there were entries with 4 and 3,
-                # 4 would become the subscription's number, and because 4 > 3, 3 would be skipped.
-                # Calling list first checks all entries against the subscription's original number,
-                # avoiding this problem.
-                for subscription, entry, number in list(feed.matching_subscriptions()):
-                    path_or_magnet = feed.download_entry(entry, subscription.directory)
-                    subscription.command(path_or_magnet)
-                    if subscription.has_lower_number_than(number):
-                        subscription.number = number
+        with self.exceptions_shown_as_gui():
+            for feed in self.feeds.values():
+                if feed.enabled and feed.has_any_enabled_subscriptions():
+                    # List is called here as otherwise subscription.number would be updated during the
+                    # loop before being checked by the next iteration of feed.matching_subscriptions,
+                    # so if a subscription's number was originally 2 and there were entries with 4 and 3,
+                    # 4 would become the subscription's number, and because 4 > 3, 3 would be skipped.
+                    # Calling list first checks all entries against the subscription's original number,
+                    # avoiding this problem.
+                    for subscription, entry, number in list(feed.matching_subscriptions()):
+                        path_or_magnet = feed.download_entry(entry, subscription.directory)
+                        subscription.command(path_or_magnet)
+                        if subscription.has_lower_number_than(number):
+                            subscription.number = number
 
 class Command:
     path_replacement_regex = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
