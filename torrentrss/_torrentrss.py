@@ -3,6 +3,7 @@ import re
 import json
 import random
 import shutil
+import hashlib
 import logging
 import pathlib
 import datetime
@@ -19,7 +20,7 @@ import exception_gui
 import pkg_resources
 
 NAME = 'torrentrss'
-VERSION = __version__ = '0.2'
+VERSION = '0.3'
 
 WINDOWS = os.name == 'nt'
 
@@ -40,9 +41,10 @@ QT_EXCEPTION_GUIS = ['PyQt4', 'PyQt5', 'PySide']
 EXCEPTION_GUIS = [*QT_EXCEPTION_GUIS, 'notify-send']
 DEFAULT_EXCEPTION_GUI = None
 HAS_NOTIFY_SEND = shutil.which('notify-send') is not None
-DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = DEFAULT_MAGNET_ENABLED = True
+DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = DEFAULT_MAGNET_ENABLED = \
+    DEFAULT_TORRENT_URL_ENABLED = DEFAULT_HIDE_TORRENT_FILENAME_ENABLED = True
 TEMP_DIRECTORY = pathlib.Path(tempfile.gettempdir())
-COMMAND_PATH_ARGUMENT = '$PATH'
+COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
 NUMBER_REGEX_GROUP = 'number'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
 
@@ -52,7 +54,7 @@ class ConfigError(Exception):
 class Config:
     def __init__(self, path=CONFIG_PATH):
         self.path = path
-        with path.open() as file:
+        with path.open(encoding='utf-8') as file:
             self.json_dict = json.load(file)
         jsonschema.validate(self.json_dict, self.get_schema())
 
@@ -81,6 +83,9 @@ class Config:
                               else random.choice(USER_AGENTS))
                 feed_enabled = feed.get('enabled', DEFAULT_FEED_ENABLED)
                 magnet_enabled = feed.get('magnet_enabled', DEFAULT_MAGNET_ENABLED)
+                torrent_url_enabled = feed.get('torrent_url_enabled', DEFAULT_TORRENT_URL_ENABLED)
+                hide_torrent_filename_enabled = feed.get('hide_torrent_filename_enabled',
+                                                         DEFAULT_HIDE_TORRENT_FILENAME_ENABLED)
 
                 subscriptions = {}
                 for sub in feed['subscriptions']:
@@ -105,7 +110,8 @@ class Config:
                     subscriptions[sub_name] = Subscription(sub_name, regex, directory,
                                                            command, sub_enabled)
                 self.feeds[feed_name] = Feed(feed_name, url, user_agent, feed_enabled,
-                                             magnet_enabled, subscriptions)
+                                             magnet_enabled, torrent_url_enabled,
+                                             hide_torrent_filename_enabled, subscriptions)
 
     def __repr__(self):
         return '{}(path={!r})'.format(type(self).__name__, self.path)
@@ -188,16 +194,19 @@ class StartFileCommand(Command):
 
     def __call__(self, path):
         logging.debug("Subscription %r: launching '%s' with default program",
-                      subscription_name, path)
+                      self.subscription_name, path)
         startfile(path)
 
 class Feed:
-    def __init__(self, name, url, user_agent, enabled, magnet_enabled, subscriptions):
+    def __init__(self, name, url, user_agent, enabled, magnet_enabled,
+                 torrent_url_enabled, hide_torrent_filename_enabled, subscriptions):
         self.name = name
         self.url = url
         self.user_agent = user_agent
         self.enabled = enabled
         self.magnet_enabled = magnet_enabled
+        self.torrent_url_enabled = torrent_url_enabled
+        self.hide_torrent_filename_enabled = hide_torrent_filename_enabled
         self.subscriptions = subscriptions
 
     def __repr__(self):
@@ -247,7 +256,7 @@ class Feed:
             return False
 
     @staticmethod
-    def torrent_link_for_entry(rss_entry):
+    def torrent_url_for_entry(rss_entry):
         for link in rss_entry.links:
             if link.type == TORRENT_MIMETYPE:
                 logging.debug('Entry %r: first link with mimetype %r is %r',
@@ -259,21 +268,26 @@ class Feed:
 
     def download_entry(self, rss_entry, directory):
         if self.magnet_enabled and hasattr(rss_entry, 'torrent_magneturi'):
-            logging.debug('Entry %r: has magnet link %r',
+            logging.debug('Entry %r: has magnet url %r',
                           rss_entry.title, rss_entry.torrent_magneturi)
             return rss_entry.torrent_magneturi
 
-        link = self.torrent_link_for_entry(rss_entry)
+        url = self.torrent_url_for_entry(rss_entry)
+        if self.torrent_url_enabled:
+            logging.debug('Feed %r: returning torrent url %r', self.name, url)
+            return url
         headers = {} if self.user_agent is None else {'User-Agent': self.user_agent}
         logging.debug('Feed %r: sending GET request to %r with headers %s',
-                      self.name, link, headers)
-        response = requests.get(link, headers=headers)
+                      self.name, url, headers)
+        response = requests.get(url, headers=headers)
         logging.debug("Feed %r: response status code is %s, 'ok' is %s",
                       self.name, response.status_code, response.ok)
         response.raise_for_status()
 
         directory.mkdir(parents=True, exist_ok=True)
-        path = windows_safe_path(directory / (rss_entry.title+'.torrent'))
+        title = (hashlib.sha1(response.content).hexdigest() if self.hide_torrent_filename_enabled
+                 else rss_entry.title)
+        path = windows_safe_path(directory / (title+'.torrent'))
         path.write_bytes(response.content)
         logging.debug("Feed %r: wrote response bytes to file '%s'", self.name, path)
         return str(path)
