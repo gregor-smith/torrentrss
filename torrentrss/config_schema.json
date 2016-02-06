@@ -19,7 +19,7 @@
 						"type": "string"
 					},
 					"user_agent": {
-						"description": "User agent used to send the GET request to download the feed. If missing, a random popular user agent is chosen.",
+						"description": "User agent used to send the GET request to download the feed. If missing, the default Python Requests user agent is used.",
 						"type": "string"
 					},
 					"enabled": {

@@ -1,7 +1,6 @@
 import os
 import re
 import json
-import random
 import shutil
 import hashlib
 import logging
@@ -31,12 +30,6 @@ LOG_DIR = CONFIG_DIR / 'logs'
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
 DEFAULT_LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
 
-# TODO: better means of fetching common user agents
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.106 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.106 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2) AppleWebKit/601.3.9 (KHTML, like Gecko) Version/9.0.2 Safari/601.3.9'
-]
 QT_EXCEPTION_GUIS = ['PyQt4', 'PyQt5', 'PySide']
 EXCEPTION_GUIS = [*QT_EXCEPTION_GUIS, 'notify-send']
 DEFAULT_EXCEPTION_GUI = None
@@ -79,8 +72,7 @@ class Config:
             for feed in self.json_dict['feeds']:
                 feed_name = feed['name']
                 url = feed['url']
-                user_agent = (feed['user_agent'] if 'user_agent' in feed
-                              else random.choice(USER_AGENTS))
+                user_agent = feed.get('user_agent')
                 feed_enabled = feed.get('enabled', DEFAULT_FEED_ENABLED)
                 magnet_enabled = feed.get('magnet_enabled', DEFAULT_MAGNET_ENABLED)
                 torrent_url_enabled = feed.get('torrent_url_enabled', DEFAULT_TORRENT_URL_ENABLED)
