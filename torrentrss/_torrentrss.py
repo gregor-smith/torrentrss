@@ -182,7 +182,7 @@ class StartFileCommand(Command):
         self.subscription_name = subscription_name
 
     def __repr__(self):
-        return '{}(subscription_name={!r}'.format(self.subscription_name)
+        return '{}(subscription_name={!r}'.format(type(self).__name__, self.subscription_name)
 
     def __call__(self, path):
         logging.debug("Subscription %r: launching '%s' with default program",
@@ -335,46 +335,52 @@ def windows_safe_path(path):
         return path.with_name(new_name)
     return path
 
-def configure_logging(log_path_format, file_logging_level, console_logging_level):
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(console_logging_level)
+def configure_logging(log_path_format=DEFAULT_LOG_PATH_FORMAT,
+                      file_logging_level=None, console_logging_level=None):
+    handlers = []
 
-    path = LOG_DIR / datetime.datetime.now().strftime(log_path_format)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    file_handler = logging.FileHandler(str(path))
-    file_handler.setLevel(file_logging_level)
+    if file_logging_level is not None:
+        path = LOG_DIR / datetime.datetime.now().strftime(log_path_format)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(str(path))
+        file_handler.setLevel(file_logging_level)
+        handlers.append(file_handler)
+
+    if console_logging_level is not None:
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(console_logging_level)
+        handlers.append(console_handler)
 
     # silence requests' logging in all but the worst cases
     logging.getLogger('requests').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.WARNING)
 
-    logging.basicConfig(format=LOG_MESSAGE_FORMAT, level=file_logging_level,
-                        handlers=[file_handler, console_handler])
+    if handlers:
+        logging.basicConfig(format=LOG_MESSAGE_FORMAT, handlers=handlers,
+                            level=max(file_logging_level, console_logging_level))
 
-@contextlib.contextmanager
-def exception_logging():
-    try:
-        yield
-    except Exception as error:
-        logging.exception(type(error))
-        raise
+logging_level_choice = click.Choice(['DISABLE', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
 
-logging_level_choice = click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
+def logging_level_from_string(callback, parameter, level):
+    return None if level == 'DISABLE' else getattr(logging, level)
 
 @click.command()
 @click.option('--log-path-format', default=DEFAULT_LOG_PATH_FORMAT, show_default=True)
-@click.option('--file-logging-level', type=logging_level_choice, show_default=True,
-              default='DEBUG')
-@click.option('--console-logging-level', type=logging_level_choice, show_default=True,
-              default='INFO')
+@click.option('--file-logging-level', default='DEBUG', show_default=True,
+              type=logging_level_choice, callback=logging_level_from_string)
+@click.option('--console-logging-level', default='INFO', show_default=True,
+              type=logging_level_choice, callback=logging_level_from_string)
 @click.version_option(VERSION)
 def main(log_path_format, file_logging_level, console_logging_level):
     configure_logging(log_path_format, file_logging_level, console_logging_level)
 
-    with exception_logging():
+    try:
         try:
             config = Config()
         except FileNotFoundError as error:
             raise click.Abort("No config file found at '{}'. See the schema in the package."
                               .format(CONFIG_PATH)) from error
         config.check_feeds()
+    except Exception as error:
+        logging.exception(type(error))
+        raise
