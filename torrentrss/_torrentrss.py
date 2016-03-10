@@ -277,9 +277,9 @@ class Feed:
         response.raise_for_status()
 
         directory.mkdir(parents=True, exist_ok=True)
-        title = (hashlib.sha1(response.content).hexdigest() if self.hide_torrent_filename_enabled
-                 else rss_entry.title)
-        path = windows_safe_path(directory / (title+'.torrent'))
+        title = (hashlib.sha1(response.content).hexdigest()
+                 if self.hide_torrent_filename_enabled else rss_entry.title)
+        path = windows_safe_path(directory / title).with_suffix('.torrent')
         path.write_bytes(response.content)
         logging.debug("Feed %r: wrote response bytes to file '%s'", self.name, path)
         return str(path)
@@ -335,34 +335,64 @@ def windows_safe_path(path):
         return path.with_name(new_name)
     return path
 
-def configure_logging(log_path_format=DEFAULT_LOG_PATH_FORMAT,
-                      file_logging_level=None, console_logging_level=None):
+def configure_logging(path_format=DEFAULT_LOG_PATH_FORMAT, file_level=None, console_level=None):
     handlers = []
+    level = 0
 
-    if file_logging_level is not None:
-        path = LOG_DIR / datetime.datetime.now().strftime(log_path_format)
+    if file_level is not None:
+        path = LOG_DIR / datetime.datetime.now().strftime(path_format)
         path.parent.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(str(path))
-        file_handler.setLevel(file_logging_level)
-        handlers.append(file_handler)
+        file_handler.setLevel(file_level)
 
-    if console_logging_level is not None:
+        handlers.append(file_handler)
+        level = file_level
+
+    if console_level is not None:
         console_handler = logging.StreamHandler()
-        console_handler.setLevel(console_logging_level)
+        console_handler.setLevel(console_level)
+
         handlers.append(console_handler)
+        if console_level < level:
+            level = console_level
+
+    if handlers:
+        logging.basicConfig(format=LOG_MESSAGE_FORMAT, handlers=handlers, level=level)
 
     # silence requests' logging in all but the worst cases
     logging.getLogger('requests').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.WARNING)
 
-    if handlers:
-        logging.basicConfig(format=LOG_MESSAGE_FORMAT, handlers=handlers,
-                            level=max(file_logging_level, console_logging_level))
+def remove_old_logs(limit):
+    count = 0
+    removed_directories = set()
+    for directory, subdirectories, files in reversed(list(os.walk(str(LOG_DIR)))):
+        directory = pathlib.Path(directory)
+        files_copy = files.copy()
+        subdirectories_copy = subdirectories.copy()
+        for filename in reversed(files):
+            file = directory / filename
+            if count >= limit:
+                logging.debug("Removing old log file '%s'", file)
+                os.remove(str(file))
+                files_copy.remove(filename)
+            else:
+                count += 1
+                logging.debug("Skipping log file %s/%s '%s'", count, limit, file)
+        for subdirectory_name in subdirectories:
+            subdirectory = directory / subdirectory_name
+            if subdirectory in removed_directories:
+                subdirectories_copy.remove(subdirectory_name)
+        if not subdirectories_copy and not files_copy:
+            logging.debug("Removing directory '%s' as it has no "
+                          'remaining subdirectories or files', directory)
+            directory.rmdir()
+            removed_directories.add(directory)
 
 logging_level_choice = click.Choice(['DISABLE', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
 
 def logging_level_from_string(callback, parameter, level):
-    return None if level == 'DISABLE' else getattr(logging, level)
+    return getattr(logging, level, None)
 
 @click.command()
 @click.option('--log-path-format', default=DEFAULT_LOG_PATH_FORMAT, show_default=True)
@@ -370,11 +400,14 @@ def logging_level_from_string(callback, parameter, level):
               type=logging_level_choice, callback=logging_level_from_string)
 @click.option('--console-logging-level', default='INFO', show_default=True,
               type=logging_level_choice, callback=logging_level_from_string)
+@click.option('--log-limit', type=click.IntRange(min=1))
 @click.version_option(VERSION)
-def main(log_path_format, file_logging_level, console_logging_level):
+def main(log_path_format, file_logging_level, console_logging_level, log_limit):
     configure_logging(log_path_format, file_logging_level, console_logging_level)
 
     try:
+        if log_limit is not None:
+            remove_old_logs(log_limit)
         try:
             config = Config()
         except FileNotFoundError as error:
@@ -384,3 +417,5 @@ def main(log_path_format, file_logging_level, console_logging_level):
     except Exception as error:
         logging.exception(type(error))
         raise
+
+    logging.shutdown()

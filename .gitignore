@@ -1,6 +1,6 @@
 dist/
 build/
-testing/
+test*/
 *.pyc
 *.egg-info
 *.sublime-workspace
