@@ -49,7 +49,7 @@ class Config:
         self.path = path
         with path.open(encoding='utf-8') as file:
             self.json_dict = json.load(file)
-        jsonschema.validate(self.json_dict, self.get_schema())
+        jsonschema.validate(self.json_dict, self.get_schema_dict())
 
         self.exception_gui = self.json_dict.get('exception_gui', DEFAULT_EXCEPTION_GUI)
         if self.exception_gui in QT_EXCEPTION_GUIS:
@@ -110,9 +110,12 @@ class Config:
 
     @staticmethod
     def get_schema():
-        schema_bytes = pkg_resources.resource_string(__name__, 'config_schema.json')
-        schema_string = str(schema_bytes, encoding='utf-8')
-        return json.loads(schema_string)
+        schema = pkg_resources.resource_string(__name__, 'config_schema.json')
+        return str(schema, encoding='utf-8')
+
+    @staticmethod
+    def get_schema_dict():
+        return json.loads(Config.get_schema())
 
     @contextlib.contextmanager
     def exceptions_shown_as_gui(self):
@@ -391,8 +394,13 @@ def remove_old_logs(limit):
 
 logging_level_choice = click.Choice(['DISABLE', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
 
-def logging_level_from_string(callback, parameter, level):
+def logging_level_from_string(context, parameter, level):
     return getattr(logging, level, None)
+
+def print_schema(context, parameter, value):
+    if value:
+        print(Config.get_schema())
+        context.exit()
 
 @click.command()
 @click.option('--log-path-format', default=DEFAULT_LOG_PATH_FORMAT, show_default=True)
@@ -401,6 +409,8 @@ def logging_level_from_string(callback, parameter, level):
 @click.option('--console-logging-level', default='INFO', show_default=True,
               type=logging_level_choice, callback=logging_level_from_string)
 @click.option('--log-limit', type=click.IntRange(min=1))
+@click.option('--print-schema', is_flag=True, is_eager=True,
+              expose_value=False, callback=print_schema)
 @click.version_option(VERSION)
 def main(log_path_format, file_logging_level, console_logging_level, log_limit):
     configure_logging(log_path_format, file_logging_level, console_logging_level)
@@ -411,7 +421,7 @@ def main(log_path_format, file_logging_level, console_logging_level, log_limit):
         try:
             config = Config()
         except FileNotFoundError as error:
-            raise click.Abort("No config file found at '{}'. See the schema in the package."
+            raise click.Abort("No config file found at '{}'. Try '--print-schema'."
                               .format(CONFIG_PATH)) from error
         config.check_feeds()
     except Exception as error:
