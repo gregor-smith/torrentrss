@@ -67,6 +67,8 @@ class Config:
             raise ConfigError("'exception_gui' {!r} unknown. Must be one of {}"
                               .format(EXCEPTION_GUIS))
 
+        self.log_file_limit = self.json_dict.get('log_file_limit')
+
         with self.exceptions_shown_as_gui():
             self.feeds = {}
             for feed in self.json_dict['feeds']:
@@ -151,6 +153,36 @@ class Config:
                         subscription.command(path_or_magnet)
                         if subscription.has_lower_number_than(number):
                             subscription.number = number
+
+    def remove_old_logs(self):
+        if self.log_file_limit is None:
+            logging.debug('Log limit is None, so no logs will be removed.')
+            return
+
+        count = 0
+        removed_directories = set()
+        for directory, subdirectories, files in reversed(list(os.walk(str(LOG_DIR)))):
+            directory = pathlib.Path(directory)
+            files_copy = files.copy()
+            subdirectories_copy = subdirectories.copy()
+            for filename in reversed(files):
+                file = directory / filename
+                if count >= self.log_file_limit:
+                    logging.debug("Removing old log file '%s'", file)
+                    os.remove(str(file))
+                    files_copy.remove(filename)
+                else:
+                    count += 1
+                    logging.debug("Skipping log file %s/%s '%s'", count, self.log_file_limit, file)
+            for subdirectory_name in subdirectories:
+                subdirectory = directory / subdirectory_name
+                if subdirectory in removed_directories:
+                    subdirectories_copy.remove(subdirectory_name)
+            if not subdirectories_copy and not files_copy:
+                logging.debug("Removing log directory '%s' as it has no "
+                              'remaining subdirectories or files', directory)
+                directory.rmdir()
+                removed_directories.add(directory)
 
 class Command:
     path_replacement_regex = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
@@ -366,32 +398,6 @@ def configure_logging(path_format=DEFAULT_LOG_PATH_FORMAT, file_level=None, cons
     logging.getLogger('requests').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.WARNING)
 
-def remove_old_logs(limit):
-    count = 0
-    removed_directories = set()
-    for directory, subdirectories, files in reversed(list(os.walk(str(LOG_DIR)))):
-        directory = pathlib.Path(directory)
-        files_copy = files.copy()
-        subdirectories_copy = subdirectories.copy()
-        for filename in reversed(files):
-            file = directory / filename
-            if count >= limit:
-                logging.debug("Removing old log file '%s'", file)
-                os.remove(str(file))
-                files_copy.remove(filename)
-            else:
-                count += 1
-                logging.debug("Skipping log file %s/%s '%s'", count, limit, file)
-        for subdirectory_name in subdirectories:
-            subdirectory = directory / subdirectory_name
-            if subdirectory in removed_directories:
-                subdirectories_copy.remove(subdirectory_name)
-        if not subdirectories_copy and not files_copy:
-            logging.debug("Removing directory '%s' as it has no "
-                          'remaining subdirectories or files', directory)
-            directory.rmdir()
-            removed_directories.add(directory)
-
 logging_level_choice = click.Choice(['DISABLE', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
 
 def logging_level_from_string(context, parameter, level):
@@ -408,22 +414,20 @@ def print_schema(context, parameter, value):
               type=logging_level_choice, callback=logging_level_from_string)
 @click.option('--console-logging-level', default='INFO', show_default=True,
               type=logging_level_choice, callback=logging_level_from_string)
-@click.option('--log-limit', type=click.IntRange(min=1))
 @click.option('--print-schema', is_flag=True, is_eager=True,
               expose_value=False, callback=print_schema)
 @click.version_option(VERSION)
-def main(log_path_format, file_logging_level, console_logging_level, log_limit):
+def main(log_path_format, file_logging_level, console_logging_level):
     configure_logging(log_path_format, file_logging_level, console_logging_level)
 
     try:
-        if log_limit is not None:
-            remove_old_logs(log_limit)
         try:
             config = Config()
         except FileNotFoundError as error:
             raise click.Abort("No config file found at '{}'. Try '--print-schema'."
                               .format(CONFIG_PATH)) from error
         config.check_feeds()
+        config.remove_old_logs()
     except Exception as error:
         logging.exception(type(error))
         raise
