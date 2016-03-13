@@ -35,7 +35,9 @@ EXCEPTION_GUIS = [*QT_EXCEPTION_GUIS, 'notify-send']
 DEFAULT_EXCEPTION_GUI = None
 HAS_NOTIFY_SEND = shutil.which('notify-send') is not None
 DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = DEFAULT_MAGNET_ENABLED = \
-    DEFAULT_TORRENT_URL_ENABLED = DEFAULT_HIDE_TORRENT_FILENAME_ENABLED = True
+    DEFAULT_TORRENT_URL_ENABLED = DEFAULT_HIDE_TORRENT_FILENAME_ENABLED = \
+    DEFAULT_REMOVE_OLD_LOG_FILES_ENABLED = True
+DEFAULT_LOG_FILE_LIMIT = 1
 TEMP_DIRECTORY = pathlib.Path(tempfile.gettempdir())
 COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
 NUMBER_REGEX_GROUP = 'number'
@@ -67,7 +69,10 @@ class Config:
             raise ConfigError("'exception_gui' {!r} unknown. Must be one of {}"
                               .format(EXCEPTION_GUIS))
 
-        self.log_file_limit = self.json_dict.get('log_file_limit')
+
+        self.remove_old_log_files_enabled = self.json_dict.get('remove_old_log_files_enabled',
+                                                               DEFAULT_REMOVE_OLD_LOG_FILES_ENABLED)
+        self.log_file_limit = self.json_dict.get('log_file_limit', DEFAULT_LOG_FILE_LIMIT)
 
         with self.exceptions_shown_as_gui():
             self.feeds = {}
@@ -154,11 +159,7 @@ class Config:
                         if subscription.has_lower_number_than(number):
                             subscription.number = number
 
-    def remove_old_logs(self):
-        if self.log_file_limit is None:
-            logging.debug('Log limit is None, so no logs will be removed.')
-            return
-
+    def remove_old_log_files(self):
         count = 0
         removed_directories = set()
         for directory, subdirectories, files in reversed(list(os.walk(str(LOG_DIR)))):
@@ -183,6 +184,9 @@ class Config:
                               'remaining subdirectories or files', directory)
                 directory.rmdir()
                 removed_directories.add(directory)
+
+    def remove_old_number_files(self):
+        pass
 
 class Command:
     path_replacement_regex = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
@@ -427,7 +431,10 @@ def main(log_path_format, file_logging_level, console_logging_level):
             raise click.Abort("No config file found at '{}'. Try '--print-schema'."
                               .format(CONFIG_PATH)) from error
         config.check_feeds()
-        config.remove_old_logs()
+        if config.remove_old_log_files_enabled:
+            config.remove_old_log_files()
+        #if config.remove_old_number_files_enabled:
+        #    config.remove_old_number_files()
     except Exception as error:
         logging.exception(type(error))
         raise

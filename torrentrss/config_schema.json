@@ -6,10 +6,18 @@
 			"description": "Type of GUI shown when an error occurs. 'PyQt4', 'PyQt5', and 'PySide' are supported if the respective Python package is installed. 'notify-send' is supported if notify-send is on the PATH. If missing, no GUI is used, and the only way to find out the program failed is to read the latest log file.",
 			"type": "string"
 		},
+		"remove_old_log_files_enabled": {
+			"description": "If true, old log files are removed. Considered true if missing.",
+			"type": "boolean"
+		},
 		"log_file_limit": {
-			"description": "If given, old log files are removed. A log_file_limit of 3 would delete all but the 3 most recent log files.",
+			"description": "The number of log files to keep if remove_old_log_files_enabled is true. A limit of 3 would delete all but the 3 most recent logs. Defaults to 1 if missing.",
 			"type": "integer",
 			"minimum": 1
+		},
+		"remove_old_number_files_enabled": {
+			"description": "If true, number files for nonexistent subscriptions are removed. Considered true if missing.",
+			"type": "boolean"
 		},
 		"feeds": {
 			"type": "array",
