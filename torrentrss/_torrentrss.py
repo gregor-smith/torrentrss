@@ -19,13 +19,14 @@ import exception_gui
 import pkg_resources
 
 NAME = 'torrentrss'
-VERSION = '0.3'
+VERSION = '0.4'
 
 WINDOWS = os.name == 'nt'
 
 CONFIG_DIR = pathlib.Path(click.get_app_dir(NAME))
 CONFIG_PATH = CONFIG_DIR / 'config.json'
 LOG_DIR = CONFIG_DIR / 'logs'
+EPISODE_NUMBERS_DIR = CONFIG_DIR / 'episode_numbers'
 
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
 DEFAULT_LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
@@ -72,6 +73,8 @@ class Config:
         self.remove_old_log_files_enabled = self.json_dict.get('remove_old_log_files_enabled',
                                                                DEFAULT_REMOVE_OLD_LOG_FILES_ENABLED)
         self.log_file_limit = self.json_dict.get('log_file_limit', DEFAULT_LOG_FILE_LIMIT)
+        self.remove_old_number_files_enabled = self.json_dict.get('remove_old_number_files_enabled',
+                                                                  True)
 
         with self.exceptions_shown_as_gui():
             self.feeds = {feed_dict['name']: Feed(**feed_dict)
@@ -151,7 +154,23 @@ class Config:
                 removed_directories.add(directory)
 
     def remove_old_number_files(self):
-        pass
+        directories = {}
+        for feed in self.feeds.values():
+            directories[feed.number_directory.name] = {subscription.number_file.name
+                                                       for subscription in
+                                                       feed.subscriptions.values()}
+        for path in EPISODE_NUMBERS_DIR.iterdir():
+            if path.is_dir():
+                directory = path
+                if directory.name in directories:
+                    files = directories[path.name]
+                    for path in directory.iterdir():
+                        if path.is_file() and path.name not in files:
+                            logging.debug("Removing unused number fle '%s'", path)
+                            os.remove(str(path))
+                else:
+                    logging.debug("Removing unused feed number directory '%s'", directory)
+                    shutil.rmtree(str(directory))
 
 class Command:
     path_replacement_regex = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
@@ -197,7 +216,7 @@ class Feed:
     def __init__(self, name, url, subscriptions, user_agent=None, enabled=True,
                  magnet_enabled=True, torrent_url_enabled=True, hide_torrent_filename_enabled=True):
         self.name = name
-        self.number_directory = windows_safe_path(CONFIG_DIR / 'episode_numbers' / self.name)
+        self.number_directory = windows_safe_path(EPISODE_NUMBERS_DIR / self.name)
         self.url = url
         self.subscriptions = {subscription_dict['name']: Subscription(self, **subscription_dict)
                               for subscription_dict in subscriptions}
@@ -206,8 +225,6 @@ class Feed:
         self.magnet_enabled = magnet_enabled
         self.torrent_url_enabled = torrent_url_enabled
         self.hide_torrent_filename_enabled = hide_torrent_filename_enabled
-
-        self.number_directory.mkdir(parents=True, exist_ok=True)
 
     def __repr__(self):
         return ('{}(name={!r}, url={!r}, subscriptions={})'
@@ -333,6 +350,7 @@ class Subscription:
     @number.setter
     def number(self, new_number):
         self._number = new_number
+        self.number_file.parent.mkdir(parents=True, exist_ok=True)
         self.number_file.write_text(str(new_number))
         logging.info("Subscription %r: wrote number %s to file '%s'",
                      self.name, new_number, self.number_file)
@@ -344,7 +362,7 @@ class Subscription:
 # hence os.startfile is preferred for that platform.
 startfile = os.startfile if WINDOWS else click.launch
 
-windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\| ]')
+windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
 def windows_safe_path(path):
     if WINDOWS:
         new_name = windows_forbidden_characters_regex.sub('_', path.name)
