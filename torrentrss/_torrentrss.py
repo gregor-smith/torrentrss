@@ -69,48 +69,13 @@ class Config:
             raise ConfigError("'exception_gui' {!r} unknown. Must be one of {}"
                               .format(EXCEPTION_GUIS))
 
-
         self.remove_old_log_files_enabled = self.json_dict.get('remove_old_log_files_enabled',
                                                                DEFAULT_REMOVE_OLD_LOG_FILES_ENABLED)
         self.log_file_limit = self.json_dict.get('log_file_limit', DEFAULT_LOG_FILE_LIMIT)
 
         with self.exceptions_shown_as_gui():
-            self.feeds = {}
-            for feed in self.json_dict['feeds']:
-                feed_name = feed['name']
-                url = feed['url']
-                user_agent = feed.get('user_agent')
-                feed_enabled = feed.get('enabled', DEFAULT_FEED_ENABLED)
-                magnet_enabled = feed.get('magnet_enabled', DEFAULT_MAGNET_ENABLED)
-                torrent_url_enabled = feed.get('torrent_url_enabled', DEFAULT_TORRENT_URL_ENABLED)
-                hide_torrent_filename_enabled = feed.get('hide_torrent_filename_enabled',
-                                                         DEFAULT_HIDE_TORRENT_FILENAME_ENABLED)
-
-                subscriptions = {}
-                for sub in feed['subscriptions']:
-                    sub_name = sub['name']
-
-                    pattern = sub['pattern']
-                    try:
-                        regex = re.compile(pattern)
-                    except re.error as error:
-                        raise ConfigError("Feed {!r} subscription {!r} pattern '{}' not valid regex: {}"
-                                          .format(feed_name, sub_name, pattern, ' - '.join(error.args))) from error
-                    if NUMBER_REGEX_GROUP not in regex.groupindex:
-                        raise ConfigError("Feed {!r} subscription {!r} pattern '{}' has no {!r} group"
-                                          .format(feed_name, sub_name, pattern, NUMBER_REGEX_GROUP))
-
-                    directory = (pathlib.Path(sub['directory']) if 'directory' in sub
-                                 else TEMP_DIRECTORY)
-                    command = (Command(sub_name, sub['command']) if 'command' in sub
-                               else StartFileCommand(sub_name))
-                    sub_enabled = sub.get('enabled', DEFAULT_SUBSCRIPTION_ENABLED)
-
-                    subscriptions[sub_name] = Subscription(sub_name, regex, directory,
-                                                           command, sub_enabled)
-                self.feeds[feed_name] = Feed(feed_name, url, user_agent, feed_enabled,
-                                             magnet_enabled, torrent_url_enabled,
-                                             hide_torrent_filename_enabled, subscriptions)
+            self.feeds = {feed_dict['name']: Feed(**feed_dict)
+                          for feed_dict in self.json_dict['feeds']}
 
     def __repr__(self):
         return '{}(path={!r})'.format(type(self).__name__, self.path)
@@ -191,13 +156,13 @@ class Config:
 class Command:
     path_replacement_regex = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
 
-    def __init__(self, subscription_name, arguments):
-        self.subscription_name = subscription_name
+    def __init__(self, subscription, arguments):
+        self.subscription = subscription
         self.arguments = arguments
 
     def __repr__(self):
-        return ('{}(subscription_name={!r}, arguments={})'
-                .format(type(self).__name__, self.subscription_name, self.arguments))
+        return ('{}(subscription={!r}, arguments={})'
+                .format(type(self).__name__, self.subscription.name, self.arguments))
 
     def __call__(self, path):
         if WINDOWS:
@@ -213,32 +178,36 @@ class Command:
         arguments = [self.path_replacement_regex.sub(lambda match: str(path), argument)
                      for argument in self.arguments]
         logging.info('Subscription %r: running command subprocess with arguments %s',
-                     self.subscription_name, arguments)
+                     self.subscription.name, arguments)
         return subprocess.Popen(arguments, startupinfo=startupinfo)
 
 class StartFileCommand(Command):
-    def __init__(self, subscription_name):
-        self.subscription_name = subscription_name
+    def __init__(self, subscription):
+        self.subscription = subscription
 
     def __repr__(self):
-        return '{}(subscription_name={!r}'.format(type(self).__name__, self.subscription_name)
+        return '{}(subscription={!r}'.format(type(self).__name__, self.subscription.name)
 
     def __call__(self, path):
         logging.debug("Subscription %r: launching '%s' with default program",
-                      self.subscription_name, path)
+                      self.subscription.name, path)
         startfile(path)
 
 class Feed:
-    def __init__(self, name, url, user_agent, enabled, magnet_enabled,
-                 torrent_url_enabled, hide_torrent_filename_enabled, subscriptions):
+    def __init__(self, name, url, subscriptions, user_agent=None, enabled=True,
+                 magnet_enabled=True, torrent_url_enabled=True, hide_torrent_filename_enabled=True):
         self.name = name
+        self.number_directory = windows_safe_path(CONFIG_DIR / 'episode_numbers' / self.name)
         self.url = url
+        self.subscriptions = {subscription_dict['name']: Subscription(self, **subscription_dict)
+                              for subscription_dict in subscriptions}
         self.user_agent = user_agent
         self.enabled = enabled
         self.magnet_enabled = magnet_enabled
         self.torrent_url_enabled = torrent_url_enabled
         self.hide_torrent_filename_enabled = hide_torrent_filename_enabled
-        self.subscriptions = subscriptions
+
+        self.number_directory.mkdir(parents=True, exist_ok=True)
 
     def __repr__(self):
         return ('{}(name={!r}, url={!r}, subscriptions={})'
@@ -324,14 +293,22 @@ class Feed:
         return str(path)
 
 class Subscription:
-    def __init__(self, name, regex, directory, command, enabled):
+    def __init__(self, feed, name, pattern, directory=None, command=None, enabled=True):
+        self.feed = feed
         self.name = name
-        self.regex = regex
-        self.directory = directory
-        self.command = command
+        try:
+            self.regex = re.compile(pattern)
+        except re.error as error:
+            raise ConfigError("Feed {!r} subscription {!r} pattern '{}' not valid regex: {}"
+                              .format(feed.name, self.name, pattern, ' - '.join(error.args))) from error
+        if not self.regex.groups:
+            raise ConfigError("Feed {!r} subscription {!r} pattern '{}' has no group "
+                              'for the episode number'.format(feed.name, self.name, pattern))
+        self.directory = TEMP_DIRECTORY if directory is None else pathlib.Path(directory)
+        self.command = StartFileCommand(self) if command is None else Command(self, command)
         self.enabled = enabled
 
-        self.number_file_path = windows_safe_path(CONFIG_DIR / 'episode_numbers' / self.name)
+        self.number_file = windows_safe_path(feed.number_directory / self.name)
         self._number = None
 
     def __repr__(self):
@@ -343,22 +320,22 @@ class Subscription:
     def number(self):
         if self._number is None:
             try:
-                with self.number_file_path.open() as file:
+                with self.number_file.open() as file:
                     line = file.readline()
                 self._number = pkg_resources.parse_version(line)
                 logging.info("Subscription %r: got number %s from file '%s'",
-                             self.name, self._number, self.number_file_path)
+                             self.name, self._number, self.number_file)
             except FileNotFoundError:
                 logging.info("Subscription %r: no number file found at '%s', returning None",
-                             self.name, self.number_file_path)
+                             self.name, self.number_file)
         return self._number
 
     @number.setter
     def number(self, new_number):
         self._number = new_number
-        self.number_file_path.write_text(str(new_number))
+        self.number_file.write_text(str(new_number))
         logging.info("Subscription %r: wrote number %s to file '%s'",
-                     self.name, new_number, self.number_file_path)
+                     self.name, new_number, self.number_file)
 
     def has_lower_number_than(self, other_number):
         return self.number is None or self.number < other_number
@@ -433,8 +410,8 @@ def main(log_path_format, file_logging_level, console_logging_level):
         config.check_feeds()
         if config.remove_old_log_files_enabled:
             config.remove_old_log_files()
-        #if config.remove_old_number_files_enabled:
-        #    config.remove_old_number_files()
+        if config.remove_old_number_files_enabled:
+            config.remove_old_number_files()
     except Exception as error:
         logging.exception(type(error))
         raise
