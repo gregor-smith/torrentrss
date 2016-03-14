@@ -25,24 +25,32 @@ WINDOWS = os.name == 'nt'
 
 CONFIG_DIR = pathlib.Path(click.get_app_dir(NAME))
 CONFIG_PATH = CONFIG_DIR / 'config.json'
-LOG_DIR = CONFIG_DIR / 'logs'
+CONFIG_SCHEMA_FILENAME = 'config_schema.json'
 EPISODE_NUMBERS_DIR = CONFIG_DIR / 'episode_numbers'
 
+LOG_DIR = CONFIG_DIR / 'logs'
+LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
-DEFAULT_LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
+LOG_FILE_LIMIT = 1
 
 QT_EXCEPTION_GUIS = ['PyQt4', 'PyQt5', 'PySide']
 EXCEPTION_GUIS = [*QT_EXCEPTION_GUIS, 'notify-send']
-DEFAULT_EXCEPTION_GUI = None
-HAS_NOTIFY_SEND = shutil.which('notify-send') is not None
-DEFAULT_FEED_ENABLED = DEFAULT_SUBSCRIPTION_ENABLED = DEFAULT_MAGNET_ENABLED = \
-    DEFAULT_TORRENT_URL_ENABLED = DEFAULT_HIDE_TORRENT_FILENAME_ENABLED = \
-    DEFAULT_REMOVE_OLD_LOG_FILES_ENABLED = True
-DEFAULT_LOG_FILE_LIMIT = 1
+EXCEPTION_GUI = None
+
 TEMP_DIRECTORY = pathlib.Path(tempfile.gettempdir())
 COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
-NUMBER_REGEX_GROUP = 'number'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
+
+# click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
+# hence os.startfile is preferred for that platform.
+startfile = os.startfile if WINDOWS else click.launch
+
+windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
+def windows_safe_path(path):
+    if WINDOWS:
+        new_name = windows_forbidden_characters_regex.sub('_', path.name)
+        return path.with_name(new_name)
+    return path
 
 class ConfigError(Exception):
     pass
@@ -54,7 +62,7 @@ class Config:
             self.json_dict = json.load(file)
         jsonschema.validate(self.json_dict, self.get_schema_dict())
 
-        self.exception_gui = self.json_dict.get('exception_gui', DEFAULT_EXCEPTION_GUI)
+        self.exception_gui = self.json_dict.get('exception_gui', EXCEPTION_GUI)
         if self.exception_gui in QT_EXCEPTION_GUIS:
             # Qt is only imported on demand as it's fairly hefty. Doing as below avoids
             # unnecessarily long startup times in cases where it's installed but isn't to be used.
@@ -63,7 +71,7 @@ class Config:
             except ImportError as error:
                 raise ConfigError("'exception_gui' is {!r} but it failed to import: {}"
                                   .format(self.exception_gui, ' - '.join(error.args))) from error
-        elif self.exception_gui == 'notify-send' and not HAS_NOTIFY_SEND:
+        elif self.exception_gui == 'notify-send' and shutil.which('notify-send') is None:
             raise ConfigError("'exception_gui' is 'notify-send' but it"
                               'could not be found on the PATH')
         elif self.exception_gui is not None:
@@ -71,8 +79,8 @@ class Config:
                               .format(EXCEPTION_GUIS))
 
         self.remove_old_log_files_enabled = self.json_dict.get('remove_old_log_files_enabled',
-                                                               DEFAULT_REMOVE_OLD_LOG_FILES_ENABLED)
-        self.log_file_limit = self.json_dict.get('log_file_limit', DEFAULT_LOG_FILE_LIMIT)
+                                                               True)
+        self.log_file_limit = self.json_dict.get('log_file_limit', LOG_FILE_LIMIT)
         self.remove_old_number_files_enabled = self.json_dict.get('remove_old_number_files_enabled',
                                                                   True)
 
@@ -85,7 +93,7 @@ class Config:
 
     @staticmethod
     def get_schema():
-        schema = pkg_resources.resource_string(__name__, 'config_schema.json')
+        schema = pkg_resources.resource_string(__name__, CONFIG_SCHEMA_FILENAME)
         return str(schema, encoding='utf-8')
 
     @staticmethod
@@ -358,18 +366,8 @@ class Subscription:
     def has_lower_number_than(self, other_number):
         return self.number is None or self.number < other_number
 
-# click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
-# hence os.startfile is preferred for that platform.
-startfile = os.startfile if WINDOWS else click.launch
-
-windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
-def windows_safe_path(path):
-    if WINDOWS:
-        new_name = windows_forbidden_characters_regex.sub('_', path.name)
-        return path.with_name(new_name)
-    return path
-
-def configure_logging(path_format=DEFAULT_LOG_PATH_FORMAT, file_level=None, console_level=None):
+def configure_logging(path_format=LOG_PATH_FORMAT, message_format=LOG_MESSAGE_FORMAT,
+                      file_level=None, console_level=None):
     handlers = []
     level = 0
 
@@ -391,7 +389,7 @@ def configure_logging(path_format=DEFAULT_LOG_PATH_FORMAT, file_level=None, cons
             level = console_level
 
     if handlers:
-        logging.basicConfig(format=LOG_MESSAGE_FORMAT, handlers=handlers, level=level)
+        logging.basicConfig(format=message_format, handlers=handlers, level=level)
 
     # silence requests' logging in all but the worst cases
     logging.getLogger('requests').setLevel(logging.WARNING)
@@ -408,7 +406,7 @@ def print_schema(context, parameter, value):
         context.exit()
 
 @click.command()
-@click.option('--log-path-format', default=DEFAULT_LOG_PATH_FORMAT, show_default=True)
+@click.option('--log-path-format', default=LOG_PATH_FORMAT, show_default=True)
 @click.option('--file-logging-level', default='DEBUG', show_default=True,
               type=logging_level_choice, callback=logging_level_from_string)
 @click.option('--console-logging-level', default='INFO', show_default=True,
@@ -417,7 +415,8 @@ def print_schema(context, parameter, value):
               expose_value=False, callback=print_schema)
 @click.version_option(VERSION)
 def main(log_path_format, file_logging_level, console_logging_level):
-    configure_logging(log_path_format, file_logging_level, console_logging_level)
+    configure_logging(log_path_format, file_level=file_logging_level,
+                      console_level=console_logging_level)
 
     try:
         try:
