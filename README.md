@@ -17,6 +17,7 @@ I've always found the builtin RSS support to be lackluster in every torrent clie
 Python 3.5 or newer, and the following packages:
 
 * click
+* easygui
 * requests
 * feedparser
 * jsonschema

@@ -12,10 +12,10 @@ import contextlib
 import subprocess
 
 import click
+import easygui
 import requests
 import feedparser
 import jsonschema
-import exception_gui
 import pkg_resources
 
 NAME = 'torrentrss'
@@ -33,10 +33,6 @@ LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
 LOG_FILE_LIMIT = 1
 
-QT_EXCEPTION_GUIS = ['PyQt4', 'PyQt5', 'PySide']
-EXCEPTION_GUIS = [*QT_EXCEPTION_GUIS, 'notify-send']
-EXCEPTION_GUI = None
-
 TEMP_DIRECTORY = pathlib.Path(tempfile.gettempdir())
 COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
@@ -52,6 +48,14 @@ def windows_safe_path(path):
         return path.with_name(new_name)
     return path
 
+def show_notify_send_exception_gui():
+    text = ('An error occured. <a href="{}">Click to open the log directory.</a>'
+            .format(LOG_DIR.as_uri()))
+    return subprocess.Popen(['notify-send', '--app-name', NAME, NAME, text])
+
+def show_easygui_exception_gui():
+    return easygui.exceptionbox(msg='An error occured.', title=NAME)
+
 class ConfigError(Exception):
     pass
 
@@ -62,21 +66,12 @@ class Config:
             self.json_dict = json.load(file)
         jsonschema.validate(self.json_dict, self.get_schema_dict())
 
-        self.exception_gui = self.json_dict.get('exception_gui', EXCEPTION_GUI)
-        if self.exception_gui in QT_EXCEPTION_GUIS:
-            # Qt is only imported on demand as it's fairly hefty. Doing as below avoids
-            # unnecessarily long startup times in cases where it's installed but isn't to be used.
-            try:
-                __import__(self.exception_gui)
-            except ImportError as error:
-                raise ConfigError("'exception_gui' is {!r} but it failed to import: {}"
-                                  .format(self.exception_gui, ' - '.join(error.args))) from error
-        elif self.exception_gui == 'notify-send' and shutil.which('notify-send') is None:
-            raise ConfigError("'exception_gui' is 'notify-send' but it"
+        self.exception_gui = self.json_dict.get('exception_gui')
+        if self.exception_gui == 'notify-send' and shutil.which('notify-send') is None:
+            raise ConfigError("'exception_gui' is 'notify-send' but it "
                               'could not be found on the PATH')
-        elif self.exception_gui is not None:
-            raise ConfigError("'exception_gui' {!r} unknown. Must be one of {}"
-                              .format(EXCEPTION_GUIS))
+        elif self.exception_gui != 'easygui' and self.exception_gui is not None:
+            raise ConfigError("'exception_gui' {!r} unknown. Must be 'notify-send' or 'easygui'")
 
         self.remove_old_log_files_enabled = self.json_dict.get('remove_old_log_files_enabled',
                                                                True)
@@ -105,18 +100,10 @@ class Config:
         try:
             yield
         except Exception:
-            if self.exception_gui in QT_EXCEPTION_GUIS:
-                function = exception_gui.functions[self.exception_gui]
-                function(application_name=NAME,
-                         text='An exception occured. Details below.',
-                         detailed_text=traceback.format_exc(),
-                         open_button_text='Open log directory',
-                         open_button_function=lambda: startfile(str(LOG_DIR)))
-            elif self.exception_gui == 'notify-send':
-                exception_gui.notification(application_name=NAME,
-                                           text=('{} raised an exception. '
-                                                 'Click to open log directory.').format(NAME),
-                                           log_path=str(LOG_DIR))
+            if self.exception_gui == 'notify-send':
+                show_notify_send_exception_gui()
+            elif self.exception_gui == 'easygui':
+                show_easygui_exception_gui()
             raise
 
     def check_feeds(self):

@@ -3,7 +3,7 @@
 	"type": "object",
 	"properties": {
 		"exception_gui": {
-			"description": "Type of GUI shown when an error occurs. 'PyQt4', 'PyQt5', and 'PySide' are supported if the respective Python package is installed. 'notify-send' is supported if notify-send is on the PATH. If missing, no GUI is used, and the only way to find out the program failed is to read the latest log file.",
+			"description": "Type of GUI shown when an error occurs. 'easygui' is supported if the respective Python package is installed. 'notify-send' is supported if notify-send is on the PATH. If missing, no GUI is used, and the only way to find out the program failed is to read the latest log file.",
 			"type": "string"
 		},
 		"remove_old_log_files_enabled": {
