@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import json
 import shutil
 import hashlib
@@ -31,7 +32,7 @@ EPISODE_NUMBERS_DIR = CONFIG_DIR / 'episode_numbers'
 LOG_DIR = CONFIG_DIR / 'logs'
 LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
-LOG_FILE_LIMIT = 1
+DEFAULT_LOG_FILE_LIMIT = 1
 
 TEMP_DIRECTORY = pathlib.Path(tempfile.gettempdir())
 COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
@@ -49,12 +50,13 @@ def windows_safe_path(path):
     return path
 
 def show_notify_send_exception_gui():
-    text = ('An error occured. <a href="{}">Click to open the log directory.</a>'
-            .format(LOG_DIR.as_uri()))
+    text = ('A {} exception occured. <a href="{}">Click to open the log directory.</a>'
+            .format(sys.last_type.__name__, LOG_DIR.as_uri()))
     return subprocess.Popen(['notify-send', '--app-name', NAME, NAME, text])
 
 def show_easygui_exception_gui():
-    return easygui.exceptionbox(msg='An error occured.', title=NAME)
+    text = 'A {} exception occured.'.format(sys.last_type.__name__)
+    return easygui.exceptionbox(msg=text, title=NAME)
 
 class ConfigError(Exception):
     pass
@@ -71,11 +73,12 @@ class Config:
             raise ConfigError("'exception_gui' is 'notify-send' but it "
                               'could not be found on the PATH')
         elif self.exception_gui != 'easygui' and self.exception_gui is not None:
-            raise ConfigError("'exception_gui' {!r} unknown. Must be 'notify-send' or 'easygui'")
+            raise ConfigError("'exception_gui' {!r} unknown. Must be 'notify-send' or 'easygui'"
+                              .format(self.exception_gui))
 
         self.remove_old_log_files_enabled = self.json_dict.get('remove_old_log_files_enabled',
                                                                True)
-        self.log_file_limit = self.json_dict.get('log_file_limit', LOG_FILE_LIMIT)
+        self.log_file_limit = self.json_dict.get('log_file_limit', DEFAULT_LOG_FILE_LIMIT)
         self.remove_old_number_files_enabled = self.json_dict.get('remove_old_number_files_enabled',
                                                                   True)
 
