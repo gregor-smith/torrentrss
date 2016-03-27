@@ -151,10 +151,11 @@ class Config:
                 removed_directories.add(directory)
 
     def save_with_new_numbers(self):
+        logging.info("Writing new number files to '%s'", self.path)
         for feed_name, feed in self.feeds.items():
+            feed_subscriptions_dict = self.json_dict['feeds'][feed_name]['subscriptions']
             for subscription_name, subscription in feed.subscriptions.items():
-                self.json_dict['feeds'][feed_name]['subscriptions'][subscription_name]['number'] = \
-                    str(subscription.number)
+                feed_subscriptions_dict[subscription_name]['number'] = str(subscription.number)
         with self.path.open('w', encoding='utf-8') as file:
             json.dump(self.json_dict, file, indent='\t')
 
