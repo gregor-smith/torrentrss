@@ -8,9 +8,9 @@ import logging
 import pathlib
 import datetime
 import tempfile
-import traceback
 import contextlib
 import subprocess
+import collections
 
 import click
 import easygui
@@ -20,14 +20,13 @@ import jsonschema
 import pkg_resources
 
 NAME = 'torrentrss'
-VERSION = '0.4'
+VERSION = '0.4.1'
 
 WINDOWS = os.name == 'nt'
 
 CONFIG_DIR = pathlib.Path(click.get_app_dir(NAME))
 CONFIG_PATH = CONFIG_DIR / 'config.json'
 CONFIG_SCHEMA_FILENAME = 'config_schema.json'
-EPISODE_NUMBERS_DIR = CONFIG_DIR / 'episode_numbers'
 
 LOG_DIR = CONFIG_DIR / 'logs'
 LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
@@ -65,7 +64,7 @@ class Config:
     def __init__(self, path=CONFIG_PATH):
         self.path = path
         with path.open(encoding='utf-8') as file:
-            self.json_dict = json.load(file)
+            self.json_dict = json.load(file, object_pairs_hook=collections.OrderedDict)
         jsonschema.validate(self.json_dict, self.get_schema_dict())
 
         self.exception_gui = self.json_dict.get('exception_gui')
@@ -83,8 +82,8 @@ class Config:
                                                                   True)
 
         with self.exceptions_shown_as_gui():
-            self.feeds = {feed_dict['name']: Feed(**feed_dict)
-                          for feed_dict in self.json_dict['feeds']}
+            self.feeds = {name: Feed(name, **feed_dict) for name, feed_dict in
+                          self.json_dict['feeds'].items()}
 
     def __repr__(self):
         return '{}(path={!r})'.format(type(self).__name__, self.path)
@@ -94,9 +93,9 @@ class Config:
         schema = pkg_resources.resource_string(__name__, CONFIG_SCHEMA_FILENAME)
         return str(schema, encoding='utf-8')
 
-    @staticmethod
-    def get_schema_dict():
-        return json.loads(Config.get_schema())
+    @classmethod
+    def get_schema_dict(cls):
+        return json.loads(cls.get_schema())
 
     @contextlib.contextmanager
     def exceptions_shown_as_gui(self):
@@ -151,24 +150,13 @@ class Config:
                 directory.rmdir()
                 removed_directories.add(directory)
 
-    def remove_old_number_files(self):
-        directories = {}
-        for feed in self.feeds.values():
-            directories[feed.number_directory.name] = {subscription.number_file.name
-                                                       for subscription in
-                                                       feed.subscriptions.values()}
-        for path in EPISODE_NUMBERS_DIR.iterdir():
-            if path.is_dir():
-                directory = path
-                if directory.name in directories:
-                    files = directories[path.name]
-                    for path in directory.iterdir():
-                        if path.is_file() and path.name not in files:
-                            logging.debug("Removing unused number fle '%s'", path)
-                            os.remove(str(path))
-                else:
-                    logging.debug("Removing unused feed number directory '%s'", directory)
-                    shutil.rmtree(str(directory))
+    def save_with_new_numbers(self):
+        for feed_name, feed in self.feeds.items():
+            for subscription_name, subscription in feed.subscriptions.items():
+                self.json_dict['feeds'][feed_name]['subscriptions'][subscription_name]['number'] = \
+                    str(subscription.number)
+        with self.path.open('w', encoding='utf-8') as file:
+            json.dump(self.json_dict, file, indent='\t')
 
 class Command:
     path_replacement_regex = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
@@ -214,10 +202,9 @@ class Feed:
     def __init__(self, name, url, subscriptions, user_agent=None, enabled=True,
                  magnet_enabled=True, torrent_url_enabled=True, hide_torrent_filename_enabled=True):
         self.name = name
-        self.number_directory = windows_safe_path(EPISODE_NUMBERS_DIR / self.name)
         self.url = url
-        self.subscriptions = {subscription_dict['name']: Subscription(self, **subscription_dict)
-                              for subscription_dict in subscriptions}
+        self.subscriptions = {name: Subscription(self, name, **subscription_dict)
+                              for name, subscription_dict in subscriptions.items()}
         self.user_agent = user_agent
         self.enabled = enabled
         self.magnet_enabled = magnet_enabled
@@ -249,7 +236,7 @@ class Feed:
             for index, entry in enumerate(rss.entries):
                 match = subscription.regex.search(entry.title)
                 if match:
-                    number = pkg_resources.parse_version(match.group('number'))
+                    number = pkg_resources.parse_version(match.group(1))
                     if subscription.has_lower_number_than(number):
                         logging.info('MATCH: entry %s %r has greater number than subscription %r: '
                                      '%s > %s', index, entry.title, subscription.name,
@@ -308,7 +295,7 @@ class Feed:
         return str(path)
 
 class Subscription:
-    def __init__(self, feed, name, pattern, directory=None, command=None, enabled=True):
+    def __init__(self, feed, name, pattern, number=None, directory=None, command=None, enabled=True):
         self.feed = feed
         self.name = name
         try:
@@ -319,39 +306,15 @@ class Subscription:
         if not self.regex.groups:
             raise ConfigError("Feed {!r} subscription {!r} pattern '{}' has no group "
                               'for the episode number'.format(feed.name, self.name, pattern))
+        self.number = None if number is None else pkg_resources.parse_version(number)
         self.directory = TEMP_DIRECTORY if directory is None else pathlib.Path(directory)
         self.command = StartFileCommand(self) if command is None else Command(self, command)
         self.enabled = enabled
-
-        self.number_file = windows_safe_path(feed.number_directory / self.name)
-        self._number = None
 
     def __repr__(self):
         return ('{}(name={!r}, pattern={!r}, directory={!r}, command={!r}, enabled={}, number={})'
                 .format(type(self).__name__, self.name, self.regex.pattern,
                         self.directory, self.command, self.enabled, self.number))
-
-    @property
-    def number(self):
-        if self._number is None:
-            try:
-                with self.number_file.open() as file:
-                    line = file.readline()
-                self._number = pkg_resources.parse_version(line)
-                logging.info("Subscription %r: got number %s from file '%s'",
-                             self.name, self._number, self.number_file)
-            except FileNotFoundError:
-                logging.info("Subscription %r: no number file found at '%s', returning None",
-                             self.name, self.number_file)
-        return self._number
-
-    @number.setter
-    def number(self, new_number):
-        self._number = new_number
-        self.number_file.parent.mkdir(parents=True, exist_ok=True)
-        self.number_file.write_text(str(new_number))
-        logging.info("Subscription %r: wrote number %s to file '%s'",
-                     self.name, new_number, self.number_file)
 
     def has_lower_number_than(self, other_number):
         return self.number is None or self.number < other_number
@@ -364,7 +327,7 @@ def configure_logging(path_format=LOG_PATH_FORMAT, message_format=LOG_MESSAGE_FO
     if file_level is not None:
         path = LOG_DIR / datetime.datetime.now().strftime(path_format)
         path.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(str(path))
+        file_handler = logging.FileHandler(str(path), encoding='utf-8')
         file_handler.setLevel(file_level)
 
         handlers.append(file_handler)
@@ -415,10 +378,9 @@ def main(log_path_format, file_logging_level, console_logging_level):
             raise click.Abort("No config file found at '{}'. Try '--print-schema'."
                               .format(CONFIG_PATH)) from error
         config.check_feeds()
+        config.save_with_new_numbers()
         if config.remove_old_log_files_enabled:
             config.remove_old_log_files()
-        if config.remove_old_number_files_enabled:
-            config.remove_old_number_files()
     except Exception as error:
         logging.exception(type(error))
         raise
