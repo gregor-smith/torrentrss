@@ -24,11 +24,11 @@ VERSION = '0.4.1'
 
 WINDOWS = os.name == 'nt'
 
-CONFIG_DIR = pathlib.Path(click.get_app_dir(NAME))
-CONFIG_PATH = CONFIG_DIR / 'config.json'
+CONFIG_DIRECTORY = pathlib.Path(click.get_app_dir(NAME))
+CONFIG_PATH = CONFIG_DIRECTORY / 'config.json'
 CONFIG_SCHEMA_FILENAME = 'config_schema.json'
 
-LOG_DIR = CONFIG_DIR / 'logs'
+LOG_DIR = CONFIG_DIRECTORY / 'logs'
 LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
 DEFAULT_LOG_FILE_LIMIT = 1
@@ -36,26 +36,6 @@ DEFAULT_LOG_FILE_LIMIT = 1
 TEMP_DIRECTORY = pathlib.Path(tempfile.gettempdir())
 COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
-
-# click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
-# hence os.startfile is preferred for that platform.
-startfile = os.startfile if WINDOWS else click.launch
-
-windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
-def windows_safe_path(path):
-    if WINDOWS:
-        new_name = windows_forbidden_characters_regex.sub('_', path.name)
-        return path.with_name(new_name)
-    return path
-
-def show_notify_send_exception_gui():
-    text = ('A {} exception occured. <a href="{}">Click to open the log directory.</a>'
-            .format(sys.last_type.__name__, LOG_DIR.as_uri()))
-    return subprocess.Popen(['notify-send', '--app-name', NAME, NAME, text])
-
-def show_easygui_exception_gui():
-    text = 'A {} exception occured.'.format(sys.last_type.__name__)
-    return easygui.exceptionbox(msg=text, title=NAME)
 
 class ConfigError(Exception):
     pass
@@ -97,15 +77,26 @@ class Config:
     def get_schema_dict(cls):
         return json.loads(cls.get_schema())
 
+    @staticmethod
+    def show_notify_send_exception_gui():
+        text = ('A {} exception occured. <a href="{}">Click to open the log directory.</a>'
+                .format(sys.last_type.__name__, LOG_DIR.as_uri()))
+        return subprocess.Popen(['notify-send', '--app-name', NAME, NAME, text])
+
+    @staticmethod
+    def show_easygui_exception_gui():
+        text = 'A {} exception occured.'.format(sys.last_type.__name__)
+        return easygui.exceptionbox(msg=text, title=NAME)
+
     @contextlib.contextmanager
     def exceptions_shown_as_gui(self):
         try:
             yield
         except Exception:
             if self.exception_gui == 'notify-send':
-                show_notify_send_exception_gui()
+                self.show_notify_send_exception_gui()
             elif self.exception_gui == 'easygui':
-                show_easygui_exception_gui()
+                self.show_easygui_exception_gui()
             raise
 
     def check_feeds(self):
@@ -119,8 +110,8 @@ class Config:
                     # Calling list first checks all entries against the subscription's original number,
                     # avoiding this problem.
                     for subscription, entry, number in list(feed.matching_subscriptions()):
-                        path_or_magnet = feed.download_entry(entry, subscription.directory)
-                        subscription.command(path_or_magnet)
+                        path_or_url = feed.download_entry(entry, subscription.directory)
+                        subscription.command(path_or_url)
                         if subscription.has_lower_number_than(number):
                             subscription.number = number
 
@@ -152,8 +143,9 @@ class Config:
 
     def save_with_new_numbers(self):
         logging.info("Writing new number files to '%s'", self.path)
+        feeds_dict = self.json_dict['feeds']
         for feed_name, feed in self.feeds.items():
-            feed_subscriptions_dict = self.json_dict['feeds'][feed_name]['subscriptions']
+            feed_subscriptions_dict = feeds_dict[feed_name]['subscriptions']
             for subscription_name, subscription in feed.subscriptions.items():
                 feed_subscriptions_dict[subscription_name]['number'] = str(subscription.number)
         with self.path.open('w', encoding='utf-8') as file:
@@ -170,7 +162,7 @@ class Command:
         return ('{}(subscription={!r}, arguments={})'
                 .format(type(self).__name__, self.subscription.name, self.arguments))
 
-    def __call__(self, path):
+    def __call__(self, path_or_url):
         if WINDOWS:
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
@@ -181,7 +173,7 @@ class Command:
         # would be processed, leading to problems when dealing with file paths, for example.
         # See: https://docs.python.org/3.5/library/re.html#re.sub
         #      https://stackoverflow.com/a/16291763/3289208
-        arguments = [self.path_replacement_regex.sub(lambda match: str(path), argument)
+        arguments = [self.path_replacement_regex.sub(lambda match: str(path_or_url), argument)
                      for argument in self.arguments]
         logging.info('Subscription %r: running command subprocess with arguments %s',
                      self.subscription.name, arguments)
@@ -194,12 +186,21 @@ class StartFileCommand(Command):
     def __repr__(self):
         return '{}(subscription={!r}'.format(type(self).__name__, self.subscription.name)
 
-    def __call__(self, path):
+    def __call__(self, path_or_url):
+        if isinstance(path_or_url, pathlib.Path):
+            path_or_url = str(path_or_url)
         logging.debug("Subscription %r: launching '%s' with default program",
-                      self.subscription.name, path)
-        startfile(path)
+                      self.subscription.name, path_or_url)
+        # click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
+        # hence os.startfile is preferred for that platform.
+        if WINDOWS:
+            os.startfile(path_or_url)
+        else:
+            click.launch(path_or_url)
 
 class Feed:
+    windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
+
     def __init__(self, name, url, subscriptions, user_agent=None, enabled=True,
                  magnet_enabled=True, torrent_url_enabled=True, hide_torrent_filename_enabled=True):
         self.name = name
@@ -287,16 +288,21 @@ class Feed:
                       self.name, response.status_code, response.ok)
         response.raise_for_status()
 
-        directory.mkdir(parents=True, exist_ok=True)
         title = (hashlib.sha1(response.content).hexdigest()
                  if self.hide_torrent_filename_enabled else rss_entry.title)
-        path = windows_safe_path(directory / title).with_suffix('.torrent')
+        path = (directory / title).with_suffix('.torrent')
+        if WINDOWS:
+            new_name = self.windows_forbidden_characters_regex.sub('_', path.name)
+            path = path.with_name(new_name)
+
+        directory.mkdir(parents=True, exist_ok=True)
+        logging.debug("Feed %r: writing response bytes to file '%s'", self.name, path)
         path.write_bytes(response.content)
-        logging.debug("Feed %r: wrote response bytes to file '%s'", self.name, path)
-        return str(path)
+        return path
 
 class Subscription:
-    def __init__(self, feed, name, pattern, number=None, directory=None, command=None, enabled=True):
+    def __init__(self, feed, name, pattern, number=None,
+                 directory=TEMP_DIRECTORY, command=None, enabled=True):
         self.feed = feed
         self.name = name
         try:
@@ -308,7 +314,7 @@ class Subscription:
             raise ConfigError("Feed {!r} subscription {!r} pattern '{}' has no group "
                               'for the episode number'.format(feed.name, self.name, pattern))
         self.number = None if number is None else pkg_resources.parse_version(number)
-        self.directory = TEMP_DIRECTORY if directory is None else pathlib.Path(directory)
+        self.directory = pathlib.Path(directory)
         self.command = StartFileCommand(self) if command is None else Command(self, command)
         self.enabled = enabled
 
