@@ -20,7 +20,7 @@ import jsonschema
 import pkg_resources
 
 NAME = 'torrentrss'
-VERSION = '0.4.1'
+VERSION = '0.4.2'
 
 WINDOWS = os.name == 'nt'
 
@@ -31,7 +31,7 @@ CONFIG_SCHEMA_FILENAME = 'config_schema.json'
 LOG_DIR = CONFIG_DIRECTORY / 'logs'
 LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
-DEFAULT_LOG_FILE_LIMIT = 1
+DEFAULT_LOG_FILE_LIMIT = 10
 
 TEMP_DIRECTORY = pathlib.Path(tempfile.gettempdir())
 COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
@@ -116,30 +116,18 @@ class Config:
                             subscription.number = number
 
     def remove_old_log_files(self):
-        count = 0
-        removed_directories = set()
-        for directory, subdirectories, files in reversed(list(os.walk(str(LOG_DIR)))):
-            directory = pathlib.Path(directory)
-            files_copy = files.copy()
-            subdirectories_copy = subdirectories.copy()
-            for filename in reversed(files):
-                file = directory / filename
-                if count >= self.log_file_limit:
-                    logging.debug("Removing old log file '%s'", file)
-                    os.remove(str(file))
-                    files_copy.remove(filename)
-                else:
-                    count += 1
-                    logging.debug("Skipping log file %s/%s '%s'", count, self.log_file_limit, file)
-            for subdirectory_name in subdirectories:
-                subdirectory = directory / subdirectory_name
-                if subdirectory in removed_directories:
-                    subdirectories_copy.remove(subdirectory_name)
-            if not subdirectories_copy and not files_copy:
-                logging.debug("Removing log directory '%s' as it has no "
-                              'remaining subdirectories or files', directory)
-                directory.rmdir()
-                removed_directories.add(directory)
+        log_paths = [pathlib.Path(directory, file) for directory, subdirectories, files
+                     in os.walk(str(LOG_DIR)) for file in files]
+        log_paths.sort(key=lambda path: path.stat().st_ctime)
+
+        for path in log_paths[self.log_file_limit:]:
+            logging.debug("Removing old log file '%s'", path)
+            os.remove(str(path))
+
+        for directory, subdirectories, files in os.walk(str(LOG_DIR)):
+            if not subdirectories and not files:
+                logging.debug("Removing empty log directory '%s'", directory)
+                os.rmdir(directory)
 
     def save_with_new_numbers(self):
         logging.info("Writing new number files to '%s'", self.path)

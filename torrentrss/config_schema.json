@@ -11,7 +11,7 @@
 			"type": "boolean"
 		},
 		"log_file_limit": {
-			"description": "The number of log files to keep if remove_old_log_files_enabled is true. A limit of 3 would delete all but the 3 most recent logs. Defaults to 1 if missing.",
+			"description": "The number of log files to keep if remove_old_log_files_enabled is true. A limit of 3 would delete all but the 3 most recent logs. Defaults to 10 if missing.",
 			"type": "integer",
 			"minimum": 1
 		},
@@ -54,7 +54,7 @@
 											"type": "string"
 										},
 										"number": {
-											"description": "The current episode number. Note that the type is a string — the episode number does not have to be exclusively digits. This property is updated automatically when the program downloads a new torrent for this subscription. Should be left blank or left alone unless for example you're adding a subscription and want it to start on episode 3.",
+											"description": "The current episode number. Note that the type is a string - the episode number does not have to be exclusively digits. This property is updated automatically when the program downloads a new torrent for this subscription. Should be left alone unless for example you're adding a subscription and want it to start on episode 3.",
 											"type": "string"
 										},
 										"directory": {
