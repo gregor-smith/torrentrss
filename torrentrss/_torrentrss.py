@@ -130,7 +130,7 @@ class Config:
                 os.rmdir(directory)
 
     def save_with_new_numbers(self):
-        logging.info("Writing new number files to '%s'", self.path)
+        logging.info("Writing new episode numbers to '%s'", self.path)
         feeds_dict = self.json_dict['feeds']
         for feed_name, feed in self.feeds.items():
             feed_subscriptions_dict = feeds_dict[feed_name]['subscriptions']
