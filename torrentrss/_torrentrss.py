@@ -29,7 +29,7 @@ CONFIG_PATH = CONFIG_DIRECTORY / 'config.json'
 CONFIG_SCHEMA_FILENAME = 'config_schema.json'
 
 LOG_DIR = CONFIG_DIRECTORY / 'logs'
-LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
+DEFAULT_LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
 DEFAULT_LOG_FILE_LIMIT = 10
 
@@ -58,8 +58,6 @@ class Config:
         self.remove_old_log_files_enabled = self.json_dict.get('remove_old_log_files_enabled',
                                                                True)
         self.log_file_limit = self.json_dict.get('log_file_limit', DEFAULT_LOG_FILE_LIMIT)
-        self.remove_old_number_files_enabled = self.json_dict.get('remove_old_number_files_enabled',
-                                                                  True)
 
         with self.exceptions_shown_as_gui():
             self.feeds = {name: Feed(name, **feed_dict) for name, feed_dict in
@@ -102,7 +100,7 @@ class Config:
     def check_feeds(self):
         with self.exceptions_shown_as_gui():
             for feed in self.feeds.values():
-                if feed.enabled and feed.has_any_enabled_subscriptions():
+                if feed.enabled and any(feed.enabled_subscriptions()):
                     # List is called here as otherwise subscription.number would be updated during the
                     # loop before being checked by the next iteration of feed.matching_subscriptions,
                     # so if a subscription's number was originally 2 and there were entries with 4 and 3,
@@ -129,13 +127,14 @@ class Config:
                 logging.debug("Removing empty log directory '%s'", directory)
                 os.rmdir(directory)
 
-    def save_with_new_numbers(self):
+    def save_new_episode_numbers(self):
         logging.info("Writing new episode numbers to '%s'", self.path)
         feeds_dict = self.json_dict['feeds']
         for feed_name, feed in self.feeds.items():
             feed_subscriptions_dict = feeds_dict[feed_name]['subscriptions']
             for subscription_name, subscription in feed.subscriptions.items():
-                feed_subscriptions_dict[subscription_name]['number'] = str(subscription.number)
+                if subscription.number is not None:
+                    feed_subscriptions_dict[subscription_name]['number'] = str(subscription.number)
         with self.path.open('w', encoding='utf-8') as file:
             json.dump(self.json_dict, file, indent='\t')
 
@@ -240,13 +239,6 @@ class Feed:
                     logging.debug('NO MATCH: entry %s %r against subscription %r',
                                   index, entry.title, subscription.name)
 
-    def has_any_enabled_subscriptions(self):
-        try:
-            next(self.enabled_subscriptions())
-            return True
-        except StopIteration:
-            return False
-
     @staticmethod
     def torrent_url_for_entry(rss_entry):
         for link in rss_entry.links:
@@ -276,7 +268,7 @@ class Feed:
                       self.name, response.status_code, response.ok)
         response.raise_for_status()
 
-        title = (hashlib.sha1(response.content).hexdigest()
+        title = (hashlib.sha256(response.content).hexdigest()
                  if self.hide_torrent_filename_enabled else rss_entry.title)
         path = (directory / title).with_suffix('.torrent')
         if WINDOWS:
@@ -314,7 +306,7 @@ class Subscription:
     def has_lower_number_than(self, other_number):
         return self.number is None or self.number < other_number
 
-def configure_logging(path_format=LOG_PATH_FORMAT, message_format=LOG_MESSAGE_FORMAT,
+def configure_logging(path_format=DEFAULT_LOG_PATH_FORMAT, message_format=LOG_MESSAGE_FORMAT,
                       file_level=None, console_level=None):
     handlers = []
     level = 0
@@ -354,7 +346,7 @@ def print_schema(context, parameter, value):
         context.exit()
 
 @click.command()
-@click.option('--log-path-format', default=LOG_PATH_FORMAT, show_default=True)
+@click.option('--log-path-format', default=DEFAULT_LOG_PATH_FORMAT, show_default=True)
 @click.option('--file-logging-level', default='DEBUG', show_default=True,
               type=logging_level_choice, callback=logging_level_from_string)
 @click.option('--console-logging-level', default='INFO', show_default=True,
@@ -373,11 +365,11 @@ def main(log_path_format, file_logging_level, console_logging_level):
             raise click.Abort("No config file found at '{}'. Try '--print-schema'."
                               .format(CONFIG_PATH)) from error
         config.check_feeds()
-        config.save_with_new_numbers()
+        config.save_new_episode_numbers()
         if config.remove_old_log_files_enabled:
             config.remove_old_log_files()
     except Exception as error:
         logging.exception(type(error))
         raise
-
-    logging.shutdown()
+    finally:
+        logging.shutdown()
