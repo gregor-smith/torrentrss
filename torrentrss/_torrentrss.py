@@ -20,7 +20,7 @@ import jsonschema
 import pkg_resources
 
 NAME = 'torrentrss'
-VERSION = '0.4.2'
+VERSION = '0.5'
 
 WINDOWS = os.name == 'nt'
 
@@ -33,7 +33,7 @@ DEFAULT_LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
 DEFAULT_LOG_FILE_LIMIT = 10
 
-TEMP_DIRECTORY = pathlib.Path(tempfile.gettempdir())
+TEMPORARY_DIRECTORY = pathlib.Path(tempfile.gettempdir())
 COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
 
@@ -59,9 +59,18 @@ class Config:
                                                                True)
         self.log_file_limit = self.json_dict.get('log_file_limit', DEFAULT_LOG_FILE_LIMIT)
 
+        self.default_directory = (pathlib.Path(self.json_dict['default_directory'])
+                                  if 'default_directory' in self.json_dict
+                                  else TEMPORARY_DIRECTORY)
+        self.default_command = (Command(self.json_dict['default_command'])
+                                if 'default_command' in self.json_dict
+                                else StartFileCommand())
+
         with self.exceptions_shown_as_gui():
-            self.feeds = {name: Feed(name, **feed_dict) for name, feed_dict in
-                          self.json_dict['feeds'].items()}
+            self.feeds = {name: Feed(name, **feed_dict,
+                                     default_directory=self.default_directory,
+                                     default_command=self.default_command)
+                          for name, feed_dict in self.json_dict['feeds'].items()}
 
     def __repr__(self):
         return '{}(path={!r})'.format(type(self).__name__, self.path)
@@ -141,13 +150,11 @@ class Config:
 class Command:
     path_replacement_regex = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
 
-    def __init__(self, subscription, arguments):
-        self.subscription = subscription
+    def __init__(self, arguments):
         self.arguments = arguments
 
     def __repr__(self):
-        return ('{}(subscription={!r}, arguments={})'
-                .format(type(self).__name__, self.subscription.name, self.arguments))
+        return '{}(arguments={})'.format(type(self).__name__, self.arguments)
 
     def __call__(self, path_or_url):
         if WINDOWS:
@@ -162,22 +169,20 @@ class Command:
         #      https://stackoverflow.com/a/16291763/3289208
         arguments = [self.path_replacement_regex.sub(lambda match: str(path_or_url), argument)
                      for argument in self.arguments]
-        logging.info('Subscription %r: running command subprocess with arguments %s',
-                     self.subscription.name, arguments)
+        logging.info('Launching subprocess with arguments %s', arguments)
         return subprocess.Popen(arguments, startupinfo=startupinfo)
 
 class StartFileCommand(Command):
-    def __init__(self, subscription):
-        self.subscription = subscription
+    def __init__(self):
+        pass
 
     def __repr__(self):
-        return '{}(subscription={!r}'.format(type(self).__name__, self.subscription.name)
+        return type(self).__name__
 
     def __call__(self, path_or_url):
         if isinstance(path_or_url, pathlib.Path):
             path_or_url = str(path_or_url)
-        logging.debug("Subscription %r: launching '%s' with default program",
-                      self.subscription.name, path_or_url)
+        logging.debug("Launching %r with default program", path_or_url)
         # click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
         # hence os.startfile is preferred for that platform.
         if WINDOWS:
@@ -189,10 +194,13 @@ class Feed:
     windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
 
     def __init__(self, name, url, subscriptions, user_agent=None, enabled=True,
-                 magnet_enabled=True, torrent_url_enabled=True, hide_torrent_filename_enabled=True):
+                 magnet_enabled=True, torrent_url_enabled=True, hide_torrent_filename_enabled=True,
+                 default_directory=TEMPORARY_DIRECTORY, default_command=None):
         self.name = name
         self.url = url
-        self.subscriptions = {name: Subscription(self, name, **subscription_dict)
+        self.subscriptions = {name: Subscription(self, name, **subscription_dict,
+                                                 default_directory=default_directory,
+                                                 default_command=default_command or StartFileCommand())
                               for name, subscription_dict in subscriptions.items()}
         self.user_agent = user_agent
         self.enabled = enabled
@@ -281,8 +289,8 @@ class Feed:
         return path
 
 class Subscription:
-    def __init__(self, feed, name, pattern, number=None,
-                 directory=TEMP_DIRECTORY, command=None, enabled=True):
+    def __init__(self, feed, name, pattern, number=None, directory=None, command=None,
+                 enabled=True, default_directory=TEMPORARY_DIRECTORY, default_command=None):
         self.feed = feed
         self.name = name
         try:
@@ -294,8 +302,9 @@ class Subscription:
             raise ConfigError("Feed {!r} subscription {!r} pattern '{}' has no group "
                               'for the episode number'.format(feed.name, self.name, pattern))
         self.number = None if number is None else pkg_resources.parse_version(number)
-        self.directory = pathlib.Path(directory)
-        self.command = StartFileCommand(self) if command is None else Command(self, command)
+        self.directory = default_directory if directory is None else pathlib.Path(directory)
+        self.command = ((default_command or StartFileCommand())
+                        if command is None else Command(command))
         self.enabled = enabled
 
     def __repr__(self):
