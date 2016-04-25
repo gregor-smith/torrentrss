@@ -1,5 +1,5 @@
 ## torrentrss
-An RSS torrent downloader intended to be ran on a schedule with the likes of cron on Linux or Task Scheduler on Windows.
+An RSS torrent fetcher intended to be ran on a schedule with the likes of `cron` on Linux or Task Scheduler on Windows.
 
 ### Why?
 I've always found the builtin RSS support to be lackluster in every torrent client I've tried. Other programs seemed complicated or annoying to set up. I needed something that was simple, could track episode numbers, and supported magnet links.
