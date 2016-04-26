@@ -122,12 +122,17 @@ class Config:
                         if subscription.has_lower_number_than(number):
                             subscription.number = number
 
-    def remove_old_log_files(self):
-        log_paths = [pathlib.Path(directory, file) for directory, subdirectories, files
-                     in os.walk(str(LOG_DIR)) for file in files]
-        log_paths.sort(key=lambda path: path.stat().st_ctime)
+    @staticmethod
+    def _log_paths_by_newest_first():
+        # is in a separate method to remove_old_log_files
+        # for the sake of testing
+        return sorted((pathlib.Path(directory, file)
+                       for directory, subdirectories, files in
+                       os.walk(str(LOG_DIR)) for file in files),
+                      key=lambda path: path.stat().st_ctime, reverse=True)
 
-        for path in log_paths[self.log_file_limit:]:
+    def remove_old_log_files(self):
+        for path in self._log_paths_by_newest_first()[self.log_file_limit:]:
             logging.debug("Removing old log file '%s'", path)
             os.remove(str(path))
 
