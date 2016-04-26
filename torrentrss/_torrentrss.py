@@ -124,8 +124,7 @@ class Config:
 
     @staticmethod
     def _log_paths_by_newest_first():
-        # is in a separate method to remove_old_log_files
-        # for the sake of testing
+        # in a separate method to remove_old_log_files for the sake of testing
         return sorted((pathlib.Path(directory, file)
                        for directory, subdirectories, files in
                        os.walk(str(LOG_DIR)) for file in files),
@@ -168,7 +167,8 @@ class Command:
         # when dealing with file paths, for example.
         # See: https://docs.python.org/3.5/library/re.html#re.sub
         #      https://stackoverflow.com/a/16291763/3289208
-        replacer = lambda match: str(path_or_url)
+        def replacer(match):
+            return str(path_or_url)
         for argument in self.arguments:
             yield self.path_substitution_regex.sub(replacer, argument)
 

@@ -1,10 +1,13 @@
 import io
+import json
 import time
 import pathlib
 import tempfile
 import unittest
 import collections
 from unittest.mock import patch
+
+import pkg_resources
 
 from . import _torrentrss as torrentrss
 
@@ -28,6 +31,10 @@ minimal_config = '''{
     }
 }'''
 
+class UncloseableStringIO(io.StringIO):
+    def close(self):
+        pass
+
 class TestMinimalConfig(unittest.TestCase):
     # no need to test if the config passes the schema validation,
     # as that validation is done every setUp call
@@ -44,6 +51,7 @@ class TestMinimalConfig(unittest.TestCase):
                       torrentrss.TEMPORARY_DIRECTORY)
         self.assertIsInstance(self.config.default_command,
                               torrentrss.StartFileCommand)
+        self.assertIn('テスト feed', self.config.feeds)
 
     def test_remove_old_log_files(self):
         self.config.log_file_limit = 2
@@ -74,6 +82,27 @@ class TestMinimalConfig(unittest.TestCase):
             self.assertFalse(log_paths[logs[2]].exists())
             self.assertTrue(log_paths[logs[3]].exists())
             self.assertTrue(log_paths[logs[4]].exists())
+
+    def _dump_and_load_number(self, number):
+        self.config.feeds['テスト feed'].subscriptions['テスト sub'].number = number
+
+        # need to override the close method else the file would be closed by
+        # the with block in save_new_episode_number
+        with patch('io.open', return_value=UncloseableStringIO()) as file:
+            self.config.save_new_episode_numbers()
+            # patch() as a context manager returns the MagicMock object,
+            # which when called returns the StringIO return_value,
+            # whose getvalue() method finally returns the dumped json string
+            json_dict = json.loads(file().getvalue())
+        return json_dict['feeds']['テスト feed']['subscriptions']['テスト sub']
+
+    def test_save_new_episode_number(self):
+        sub = self._dump_and_load_number(pkg_resources.parse_version('S01E01'))
+        self.assertEqual(sub['number'], 'S01E01')
+
+    def test_save_none_episode_number(self):
+        sub = self._dump_and_load_number(None)
+        self.assertNotIn('number', sub)
 
 if __name__ == '__main__':
     unittest.main()
