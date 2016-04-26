@@ -148,7 +148,7 @@ class Config:
             json.dump(self.json_dict, file, indent='\t')
 
 class Command:
-    path_replacement_regex = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
+    path_substitution_regex = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
 
     def __init__(self, arguments):
         self.arguments = arguments
@@ -156,19 +156,24 @@ class Command:
     def __repr__(self):
         return '{}(arguments={})'.format(type(self).__name__, self.arguments)
 
+    def arguments_with_substituted_path(self, path_or_url):
+        # The repl parameter here is a function which at first looks like it
+        # could just be a string, but it actually needs to be a function or
+        # else escapes in the string would be processed, leading to problems
+        # when dealing with file paths, for example.
+        # See: https://docs.python.org/3.5/library/re.html#re.sub
+        #      https://stackoverflow.com/a/16291763/3289208
+        replacer = lambda match: str(path_or_url)
+        for argument in self.arguments:
+            yield self.path_substitution_regex.sub(replacer, argument)
+
     def __call__(self, path_or_url):
         if WINDOWS:
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
         else:
             startupinfo = None
-        # The re.sub call's repl parameter here is a function which at first looks like it could
-        # just be a string, but it actually needs to be a function or else escapes in the string
-        # would be processed, leading to problems when dealing with file paths, for example.
-        # See: https://docs.python.org/3.5/library/re.html#re.sub
-        #      https://stackoverflow.com/a/16291763/3289208
-        arguments = [self.path_replacement_regex.sub(lambda match: str(path_or_url), argument)
-                     for argument in self.arguments]
+        arguments = list(self.arguments_with_substituted_path(path_or_url))
         logging.info('Launching subprocess with arguments %s', arguments)
         return subprocess.Popen(arguments, startupinfo=startupinfo)
 

@@ -11,7 +11,7 @@
 			"type": "boolean"
 		},
 		"log_file_limit": {
-			"description": "The number of log files to keep if remove_old_log_files_enabled is true. A limit of 3 would delete all but the 3 most recent logs. Defaults to 10 if missing.",
+			"description": "The number of log files to keep if 'remove_old_log_files_enabled' is true. A limit of 3 would delete all but the 3 most recent logs. Defaults to 10 if missing.",
 			"type": "integer",
 			"minimum": 1
 		},
@@ -50,10 +50,12 @@
 							"type": "boolean"
 						},
 						"torrent_url_enabled": {
-							"description": "If true, the torrent file's URL is passed to the command. If false, the torrent file is downloaded, and the path to that file is passed to the command. Considered true if missing."
+							"description": "If true, the torrent file's URL is passed to the command. If false, the torrent file is downloaded, and the path to that file is passed to the command. Considered true if missing.",
+							"type": "boolean"
 						},
 						"hide_torrent_filename_enabled": {
-							"description": "If true, the torrent's filename is replaced with its SHA-256 hash. If false, the filename is unchanged, although invalid characters are replaced with underscores on Windows systems. Ignored if 'torrent_url_enabled' is false. Considered true if missing."
+							"description": "If true, the torrent's filename is replaced with its SHA-256 hash. If false, the filename is unchanged, although invalid characters are replaced with underscores on Windows systems. Ignored if 'torrent_url_enabled' is false. Considered true if missing.",
+							"type": "boolean"
 						},
 						"subscriptions": {
 							"type": "object",

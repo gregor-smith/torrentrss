@@ -21,6 +21,9 @@ setuptools.setup(
                       'feedparser', 'jsonschema'],
     classifiers=['Development Status :: 3 - Alpha',
                  'License :: OSI Approved :: MIT License',
+                 'Operating System :: OS Independent',
+                 'Programming Language :: Python :: 3',
                  'Programming Language :: Python :: 3.5',
-                 'Topic :: Utilities']
+                 'Topic :: Utilities'],
+    test_suite='torrentrss.tests'
 )

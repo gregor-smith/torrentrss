@@ -7,10 +7,11 @@ I've always found the builtin RSS support to be lackluster in every torrent clie
 ### Features
 * Configuration is a simple JSON file with a well-commented schema for reference
 * Keeps track of episode numbers, so no downloading last week's episode when you've already seen it
-* Uses regular expressions to match filenames
+* Uses regular expressions to match RSS entries
 * Can pass magnet links to commands if available instead of downloading and passing torrent files (enabled by default)
 * Can pass torrent URLs to commands instead of downloading and passing torrent files (enabled by default, but magnet links are preferred)
 * Can use a custom user agent for downloading each feed
+* Can set custom commands to be run on the path or URL for each subscription
 * Can download torrent files to a custom directory for each subscription (by default the operating system's temporary directory is used)
 
 ### Requirements
