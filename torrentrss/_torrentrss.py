@@ -289,16 +289,46 @@ class Feed:
                      'link %r', rss_entry['title'], TORRENT_MIMETYPE, link)
         return link
 
+    @staticmethod
+    def magnet_link_for_entry(rss_entry):
+        try:
+            magnet = rss_entry['torrent_magneturi']
+            logging.debug('Entry %r: has magnet url %r',
+                          rss_entry['title'], magnet)
+            return magnet
+        except KeyError:
+            logging.info("Entry %r: 'magnet_enabled' is true but no "
+                         'magnet link could be found', rss_entry['title'])
+            raise
+
+    def download_entry_torrent_file(self, url, rss_entry, directory):
+        headers = ({} if self.user_agent is None else
+                   {'User-Agent': self.user_agent})
+        logging.debug('Feed %r: sending GET request to %r with headers %s',
+                      self.name, url, headers)
+        response = requests.get(url, headers=headers)
+        logging.debug("Feed %r: response status code is %s, 'ok' is %s",
+                      self.name, response.status_code, response.ok)
+        response.raise_for_status()
+
+        title = (hashlib.sha256(response.content).hexdigest()
+                 if self.hide_torrent_filename_enabled else rss_entry['title'])
+        path = (directory / title).with_suffix('.torrent')
+        if WINDOWS:
+            new_name = self.windows_forbidden_characters_regex.sub('_',
+                                                                   path.name)
+            path = path.with_name(new_name)
+
+        directory.mkdir(parents=True, exist_ok=True)
+        logging.debug("Feed %r: writing response bytes to file '%s'",
+                      self.name, path)
+        path.write_bytes(response.content)
+        return path
+
     def download_entry(self, rss_entry, directory):
         if self.magnet_enabled:
-            if 'torrent_magneturi' in rss_entry:
-                magnet = rss_entry['torrent_magneturi']
-                logging.debug('Entry %r: has magnet url %r',
-                              rss_entry['title'], magnet)
-                return magnet
-            else:
-                logging.info("Entry %r: 'magnet_enabled' is true but no "
-                             'magnet link could be found', rss_entry['title'])
+            with contextlib.suppress(KeyError):
+                return self.magnet_link_for_entry(rss_entry)
 
         url = self.torrent_url_for_entry(rss_entry)
         if self.torrent_url_enabled:
@@ -316,26 +346,11 @@ class Feed:
             raise FeedError("Feed {!r}: {} Nothing to download."
                             .format(self.name, message))
 
-        headers = ({} if self.user_agent is None else
-                   {'User-Agent': self.user_agent})
-        logging.debug('Feed %r: sending GET request to %r with headers %s',
-                      self.name, url, headers)
-        response = requests.get(url, headers=headers)
-        logging.debug("Feed %r: response status code is %s, 'ok' is %s",
-                      self.name, response.status_code, response.ok)
-        response.raise_for_status()
-
-        title = (hashlib.sha256(response.content).hexdigest()
-                 if self.hide_torrent_filename_enabled else rss_entry['title'])
-        path = (directory / title).with_suffix('.torrent')
-        if WINDOWS:
-            new_name = self.windows_forbidden_characters_regex.sub('_', path.name)
-            path = path.with_name(new_name)
-
-        directory.mkdir(parents=True, exist_ok=True)
-        logging.debug("Feed %r: writing response bytes to file '%s'", self.name, path)
-        path.write_bytes(response.content)
-        return path
+        try:
+            return self.download_entry_torrent_file(url, rss_entry, directory)
+        except Exception as error:
+            raise FeedError('Feed {!r}: failed to download {}'
+                            .format(self.name, url)) from error
 
 class Subscription:
     def __init__(self, feed, name, pattern, default_directory, default_command,
