@@ -20,7 +20,7 @@ import jsonschema
 import pkg_resources
 
 NAME = 'torrentrss'
-VERSION = '0.5'
+VERSION = '0.5.1'
 
 WINDOWS = os.name == 'nt'
 
@@ -37,7 +37,13 @@ TEMPORARY_DIRECTORY = pathlib.Path(tempfile.gettempdir())
 COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
 
-class ConfigError(Exception):
+class TorrentRSSError(Exception):
+    pass
+
+class ConfigError(TorrentRSSError):
+    pass
+
+class FeedError(TorrentRSSError):
     pass
 
 class Config:
@@ -123,7 +129,7 @@ class Config:
                             subscription.number = number
 
     @staticmethod
-    def _log_paths_by_newest_first():
+    def log_paths_by_newest_first():
         # in a separate method to remove_old_log_files for the sake of testing
         return sorted((pathlib.Path(directory, file)
                        for directory, subdirectories, files in
@@ -131,7 +137,7 @@ class Config:
                       key=lambda path: path.stat().st_ctime, reverse=True)
 
     def remove_old_log_files(self):
-        for path in self._log_paths_by_newest_first()[self.log_file_limit:]:
+        for path in self.log_paths_by_newest_first()[self.log_file_limit:]:
             logging.debug("Removing old log file '%s'", path)
             os.remove(str(path))
 
@@ -147,7 +153,8 @@ class Config:
             feed_subscriptions_dict = feeds_dict[feed_name]['subscriptions']
             for subscription_name, subscription in feed.subscriptions.items():
                 if subscription.number is not None:
-                    feed_subscriptions_dict[subscription_name]['number'] = str(subscription.number)
+                    feed_subscriptions_dict[subscription_name]['number'] = \
+                        str(subscription.number)
         with self.path.open('w', encoding='utf-8') as file:
             json.dump(self.json_dict, file, indent='\t')
 
@@ -204,29 +211,41 @@ class Feed:
     windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
 
     def __init__(self, name, url, subscriptions, user_agent=None, enabled=True,
-                 magnet_enabled=True, torrent_url_enabled=True, hide_torrent_filename_enabled=True,
-                 default_directory=TEMPORARY_DIRECTORY, default_command=None):
+                 magnet_enabled=True, torrent_url_enabled=True,
+                 torrent_file_enabled=True, hide_torrent_filename_enabled=True,
+                 **kwargs):
+        if not any([magnet_enabled, torrent_url_enabled,
+                    torrent_file_enabled]):
+            raise ConfigError(
+                "Feed {!r}: at least one of 'magnet_enabled', "
+                "'torrent_url_enabled', or 'torrent_file_enabled' "
+                'must be true'.format(name)
+            )
+
         self.name = name
         self.url = url
-        self.subscriptions = {name: Subscription(self, name, **subscription_dict,
-                                                 default_directory=default_directory,
-                                                 default_command=default_command or StartFileCommand())
-                              for name, subscription_dict in subscriptions.items()}
+        self.subscriptions = {
+            name: Subscription(self, name, **subscription_dict, **kwargs)
+            for name, subscription_dict in subscriptions.items()
+        }
         self.user_agent = user_agent
         self.enabled = enabled
         self.magnet_enabled = magnet_enabled
         self.torrent_url_enabled = torrent_url_enabled
+        self.torrent_file_enabled = torrent_file_enabled
         self.hide_torrent_filename_enabled = hide_torrent_filename_enabled
 
     def __repr__(self):
         return ('{}(name={!r}, url={!r}, subscriptions={})'
-                .format(type(self).__name__, self.name, self.url, self.subscriptions.keys()))
+                .format(type(self).__name__, self.name,
+                        self.url, self.subscriptions.keys()))
 
     def fetch(self):
         rss = feedparser.parse(self.url)
-        if rss.bozo:
-            logging.critical('Feed %r: error parsing url %r', self.name, self.url)
-            raise rss.bozo_exception
+        if rss['bozo']:
+            raise FeedError('Feed {!r}: error parsing url {!r}'
+                            .format(self.name, self.url)) \
+                from rss['bozo_exception']
         logging.info('Feed %r: downloaded url %r', self.name, self.url)
         return rss
 
@@ -241,44 +260,64 @@ class Feed:
             logging.debug("Subscription %r: checking entries against pattern: %s",
                           subscription.name, subscription.regex.pattern)
             for index, entry in enumerate(rss.entries):
-                match = subscription.regex.search(entry.title)
+                match = subscription.regex.search(entry['title'])
                 if match:
                     number = pkg_resources.parse_version(match.group(1))
                     if subscription.has_lower_number_than(number):
                         logging.info('MATCH: entry %s %r has greater number than subscription %r: '
-                                     '%s > %s', index, entry.title, subscription.name,
+                                     '%s > %s', index, entry['title'], subscription.name,
                                      number, subscription.number)
                         yield subscription, entry, number
                     else:
                         logging.debug('NO MATCH: entry %s %r matches but number less than or '
-                                      'equal to subscription %r: %s <= %s', index, entry.title,
+                                      'equal to subscription %r: %s <= %s', index, entry['title'],
                                       subscription.name, number, subscription.number)
                 else:
                     logging.debug('NO MATCH: entry %s %r against subscription %r',
-                                  index, entry.title, subscription.name)
+                                  index, entry['title'], subscription.name)
 
     @staticmethod
     def torrent_url_for_entry(rss_entry):
-        for link in rss_entry.links:
-            if link.type == TORRENT_MIMETYPE:
+        for link in rss_entry['links']:
+            if link['type'] == TORRENT_MIMETYPE:
+                href = link['href']
                 logging.debug('Entry %r: first link with mimetype %r is %r',
-                              rss_entry.title, TORRENT_MIMETYPE, link.href)
-                return link.href
-        logging.info('Entry %r: no link with mimetype %r, returning first link %r',
-                     rss_entry.title, TORRENT_MIMETYPE, rss_entry.link)
-        return rss_entry.link
+                              rss_entry['title'], TORRENT_MIMETYPE, href)
+                return href
+        link = rss_entry['link']
+        logging.info('Entry %r: no link with mimetype %r, returning first '
+                     'link %r', rss_entry['title'], TORRENT_MIMETYPE, link)
+        return link
 
     def download_entry(self, rss_entry, directory):
-        if self.magnet_enabled and hasattr(rss_entry, 'torrent_magneturi'):
-            logging.debug('Entry %r: has magnet url %r',
-                          rss_entry.title, rss_entry.torrent_magneturi)
-            return rss_entry.torrent_magneturi
+        if self.magnet_enabled:
+            if 'torrent_magneturi' in rss_entry:
+                magnet = rss_entry['torrent_magneturi']
+                logging.debug('Entry %r: has magnet url %r',
+                              rss_entry['title'], magnet)
+                return magnet
+            else:
+                logging.info("Entry %r: 'magnet_enabled' is true but no "
+                             'magnet link could be found', rss_entry['title'])
 
         url = self.torrent_url_for_entry(rss_entry)
         if self.torrent_url_enabled:
             logging.debug('Feed %r: returning torrent url %r', self.name, url)
             return url
-        headers = {} if self.user_agent is None else {'User-Agent': self.user_agent}
+
+        if not self.torrent_file_enabled:
+            if self.magnet_enabled:
+                message = ("'magnet_enabled' is true but it failed, and"
+                           "'torrent_url_enabled' and 'torrent_file_enabled' "
+                           'are false.')
+            else:
+                message = ("'magnet_enabled', 'torrent_url_enabled', and "
+                           "'torrent_file_enabled' are all false.")
+            raise FeedError("Feed {!r}: {} Nothing to download."
+                            .format(self.name, message))
+
+        headers = ({} if self.user_agent is None else
+                   {'User-Agent': self.user_agent})
         logging.debug('Feed %r: sending GET request to %r with headers %s',
                       self.name, url, headers)
         response = requests.get(url, headers=headers)
@@ -287,7 +326,7 @@ class Feed:
         response.raise_for_status()
 
         title = (hashlib.sha256(response.content).hexdigest()
-                 if self.hide_torrent_filename_enabled else rss_entry.title)
+                 if self.hide_torrent_filename_enabled else rss_entry['title'])
         path = (directory / title).with_suffix('.torrent')
         if WINDOWS:
             new_name = self.windows_forbidden_characters_regex.sub('_', path.name)
@@ -299,8 +338,8 @@ class Feed:
         return path
 
 class Subscription:
-    def __init__(self, feed, name, pattern, number=None, directory=None, command=None,
-                 enabled=True, default_directory=TEMPORARY_DIRECTORY, default_command=None):
+    def __init__(self, feed, name, pattern, default_directory, default_command,
+                 number=None, directory=None, command=None, enabled=True):
         self.feed = feed
         self.name = name
         try:
@@ -311,10 +350,11 @@ class Subscription:
         if not self.regex.groups:
             raise ConfigError("Feed {!r} subscription {!r} pattern '{}' has no group "
                               'for the episode number'.format(feed.name, self.name, pattern))
-        self.number = None if number is None else pkg_resources.parse_version(number)
-        self.directory = default_directory if directory is None else pathlib.Path(directory)
-        self.command = ((default_command or StartFileCommand())
-                        if command is None else Command(command))
+        self.number = (None if number is None else
+                       pkg_resources.parse_version(number))
+        self.directory = (default_directory if directory is None else
+                          pathlib.Path(directory))
+        self.command = default_command if command is None else Command(command)
         self.enabled = enabled
 
     def __repr__(self):

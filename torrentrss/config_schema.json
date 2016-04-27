@@ -46,11 +46,15 @@
 							"type": "boolean"
 						},
 						"magnet_enabled": {
-							"description": "If true, magnet URLs are used instead of torrent files if possible. Considered true if missing",
+							"description": "If true, magnet URLs are used if possible. Considered true if missing",
 							"type": "boolean"
 						},
 						"torrent_url_enabled": {
-							"description": "If true, the torrent file's URL is passed to the command. If false, the torrent file is downloaded, and the path to that file is passed to the command. Considered true if missing.",
+							"description": "If true, the torrent file's URL is passed to the command. Takes lower precedence than 'magnet_enabled', but higher precedence than 'torrent_file_enabled'. Considered true if missing.",
+							"type": "boolean"
+						},
+						"torrent_file_enabled": {
+							"description": "If true, the torrent file is downloaded, and the path to that file is passed to the command. Takes lower precedence than 'magnet_enabled' and 'torrent_url_enabled' if they are also true. Considered true if missing",
 							"type": "boolean"
 						},
 						"hide_torrent_filename_enabled": {
