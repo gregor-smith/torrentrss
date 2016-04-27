@@ -7,7 +7,7 @@ import pathlib
 import tempfile
 import unittest
 import collections
-from unittest.mock import patch, MagicMock, ANY
+from unittest.mock import patch, MagicMock
 
 from pkg_resources import parse_version
 
@@ -15,14 +15,14 @@ from . import _torrentrss as torrentrss
 
 class _TestConfig(unittest.TestCase):
     @classmethod
-    def config_from_string(cls):
+    def _config_from_string(cls):
         with patch('io.open', return_value=io.StringIO(cls.config_string)):
             return torrentrss.Config()
 
     # no need to test if the config passes the schema validation,
     # as that validation is done every setUp call
     def setUp(self):
-        self.config = self.config_from_string()
+        self.config = self._config_from_string()
 
 class UncloseableStringIO(io.StringIO):
     def close(self):
@@ -104,27 +104,32 @@ class TestMinimalConfig(_TestConfig):
         sub = self._dump_and_load_number(None)
         self.assertNotIn('number', sub)
 
-class TestMinimalConfigFeed(unittest.TestCase):
-    # downloading torrent files
-    # downloading when magnet, url and torrent are all disabled
-    # windows forbidden characters
+@patch.object(pathlib.Path, 'write_bytes')
+@patch.object(pathlib.Path, 'mkdir')
+@patch('requests.get', return_value=MagicMock(content=b''))
+class TestFeed(unittest.TestCase):
+    directory = pathlib.Path('テスト')
+    entry_filename = 'テスト filename 1'
+    entry_main_link = 'https://test.url/テスト/is-the-main-link'
+    entry_torrent_link = 'https://test.url/テスト/is-a-torrent-link'
+    entry_magnet_link = 'magnet:?is-a-magnet-link'
 
     def setUp(self):
-        self.config = TestMinimalConfig.config_from_string()
+        self.config = TestMinimalConfig._config_from_string()
         self.feed = self.config.feeds['テスト feed']
         self.rss = {
             'encoding': 'utf-8',
             'entries': [
                 {
-                    'title': 'テスト filename 1',
-                    'link': 'https://test.url/テスト/is-the-main-link',
+                    'title': self.entry_filename,
+                    'link': self.entry_main_link,
                     'links': [
                         {
                             'href': 'https://test.url/テスト/not-a-torrent-link',
                             'type': 'text/html'
                         },
                         {
-                            'href': 'https://test.url/テスト/is-a-torrent-link',
+                            'href': self.entry_torrent_link,
                             'type': 'application/x-bittorrent'
                         },
                         {
@@ -132,20 +137,20 @@ class TestMinimalConfigFeed(unittest.TestCase):
                             'type': 'text/html'
                         }
                     ],
-                    'torrent_magneturi': 'magnet:?is-a-magnet-link'
+                    'torrent_magneturi': self.entry_magnet_link
                 }
             ]
         }
         self.entry = self.rss['entries'][0]
 
-    def test_windows_forbidden_characters_regex(self):
+    def test_windows_forbidden_characters_regex(self, *args):
         original = '\テスト/ :string* full? of" <forbidden> characters|'
         desired = '-テスト- -string- full- of- -forbidden- characters-'
         result = self.feed.windows_forbidden_characters_regex.sub('-',
                                                                   original)
         self.assertEqual(result, desired)
 
-    def test_properties(self):
+    def test_properties(self, *args):
         self.assertEqual(self.feed.name, 'テスト feed')
         self.assertEqual(self.feed.url, 'https://test.url/テスト')
         self.assertIsNone(self.feed.user_agent)
@@ -155,55 +160,82 @@ class TestMinimalConfigFeed(unittest.TestCase):
         self.assertTrue(self.feed.torrent_file_enabled)
         self.assertTrue(self.feed.hide_torrent_filename_enabled)
 
-    def test_torrent_url_for_entry(self):
+    def test_torrent_url_for_entry(self, *args):
         self.assertEqual(self.feed.torrent_url_for_entry(self.entry),
-                         self.entry['links'][1]['href'])
+                         self.entry_torrent_link)
 
-    def test_torrent_url_for_entry_when_no_link_with_torrent_mimetype(self):
+    def test_torrent_url_for_entry_no_torrent_mimetype_link(self, *args):
         self.entry['links'][1]['type'] = 'application/x-not-bittorrent'
         self.assertEqual(self.feed.torrent_url_for_entry(self.entry),
-                         self.entry['link'])
+                         self.entry_main_link)
 
-    def test_magnet_link_for_entry(self):
+    def test_magnet_link_for_entry(self, *args):
         self.assertEqual(self.feed.magnet_link_for_entry(self.entry),
-                         self.entry['torrent_magneturi'])
+                         self.entry_magnet_link)
 
-    def test_magnet_link_for_entry_when_none_exists(self):
+    def test_magnet_link_for_entry_when_none_exists(self, *args):
         del self.entry['torrent_magneturi']
         with self.assertRaises(KeyError):
             self.feed.magnet_link_for_entry(self.entry)
 
-    def test_download_entry_torrent_file(self):
+    def _run_download_entry_torrent_file(self, *args):
+        return self.feed.download_entry_torrent_file(
+            url=None,
+            rss_entry=self.entry,
+            directory=self.directory
+        )
+
+    def test_download_entry_torrent_file_none_user_agent(self,
+                                                         requests_get_mock,
+                                                         *args):
+        self._run_download_entry_torrent_file()
+        requests_get_mock.assert_called_with(None, headers={})
+
+    def _torrent_path(self, filename):
+        return (self.directory / filename) \
+            .with_suffix('.torrent') \
+            .as_posix()
+
+    def test_download_entry_torrent_file(self, *args):
         sha256 = hashlib.sha256(b'').hexdigest()
+        desired_path = self._torrent_path(sha256)
+        path = self._run_download_entry_torrent_file()
+        self.assertEqual(path.as_posix(), desired_path)
 
-        response_mock = MagicMock()
-        response_mock.content = b''
+    def test_download_entry_torrent_file_no_hidden_filename(self, *args):
+        self.feed.hide_torrent_filename_enabled = False
+        desired_path = self._torrent_path(self.entry_filename)
+        path = self._run_download_entry_torrent_file()
+        self.assertEqual(path.as_posix(), desired_path)
 
-        def run():
-            return self.feed.download_entry_torrent_file(
-                url=None,
-                rss_entry=self.entry,
-                directory=pathlib.Path('テスト')
-            )
+    def _run_download_entry(self):
+        return self.feed.download_entry(self.entry, self.directory)
 
-        with patch('requests.get', return_value=response_mock) as get_mock, \
-             patch.object(pathlib.Path, 'mkdir'), \
-             patch.object(pathlib.Path, 'write_bytes'):
-            path = run()
-            self.assertEqual(path.as_posix(), 'テスト/{}.torrent'.format(sha256))
-            get_mock.assert_called_with(None, headers={})
+    def test_download_entry_magnet_enabled(self, *args):
+        uri = self._run_download_entry()
+        self.assertEqual(uri, self.entry_magnet_link)
 
-            self.feed.user_agent = 'テスト user agent'
-            self.feed.hide_torrent_filename_enabled = False
-            expected_path = 'テスト/{}.torrent'.format(self.entry['title'])
-            path = run()
-            get_mock.assert_called_with(None, headers={'User-Agent':
-                                                       'テスト user agent'})
-            self.assertEqual(path.as_posix(), expected_path)
+    def test_download_entry_magnet_disabled_url_enabled(self, *args):
+        self.feed.magnet_enabled = False
+        url = self._run_download_entry()
+        self.assertEqual(url, self.entry_torrent_link)
+
+    def test_download_entry_magnet_and_url_disabled_file_enabled(self, *args):
+        self.feed.magnet_enabled = self.feed.torrent_url_enabled = False
+        with patch.object(self.feed, 'download_entry_torrent_file') as mock:
+            self._run_download_entry()
+            mock.assert_called_with(self.entry_torrent_link,
+                                    self.entry, self.directory)
+
+    def test_download_entry_magnet_url_file_all_disabled(self, *args):
+        self.feed.magnet_enabled = self.feed.torrent_url_enabled = \
+            self.feed.torrent_file_enabled = False
+        with self.assertRaises(torrentrss.FeedError):
+            self._run_download_entry()
 
 class TestMinimalConfigSubscription(unittest.TestCase):
     def setUp(self):
-        self.config = TestMinimalConfig.config_from_string()
+        self.config = TestMinimalConfig._config_from_string()
         self.feed = self.config.feeds['テスト feed']
         self.sub = self.feed.subscriptions['テスト sub']
 
