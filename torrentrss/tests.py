@@ -58,7 +58,8 @@ class TestMinimalConfig(unittest.TestCase):
     @patch.object(torrentrss.Config, 'show_notify_send_exception_gui')
     @patch.object(torrentrss.Config, 'show_easygui_exception_gui')
     def _run_exceptions_shown_as_gui(self, *args, gui=None):
-        self.config.exception_gui = gui
+        # bypassing the property to avoid error when notify-send not on path
+        self.config._exception_gui = gui
         with self.assertRaises(Exception), \
              self.config.exceptions_shown_as_gui():
             raise Exception
@@ -78,6 +79,15 @@ class TestMinimalConfig(unittest.TestCase):
         easygui, notify = self._run_exceptions_shown_as_gui(gui='notify-send')
         easygui.assert_not_called()
         notify.assert_called_once_with()
+
+    def test_setting_exception_gui_to_invalid_value(self):
+        with self.assertRaises(torrentrss.ConfigError):
+            self.config.exception_gui = 'test'
+
+    @patch('shutil.which', return_value=None)
+    def test_setting_exception_gui_to_notify_send_not_on_path(self, which):
+        with self.assertRaises(torrentrss.ConfigError):
+            self.config.exception_gui = 'notify-send'
 
     @patch('subprocess.Popen')
     @patch.object(torrentrss, 'LOG_DIR', pathlib.PurePosixPath('/test'))

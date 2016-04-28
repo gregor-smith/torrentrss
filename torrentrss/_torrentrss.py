@@ -49,6 +49,7 @@ class FeedError(TorrentRSSError):
 class Config(dict):
     def __init__(self, path=CONFIG_PATH):
         super().__init__()
+        self._exception_gui = None
 
         self.path = path
         with path.open(encoding='utf-8') as file:
@@ -57,15 +58,6 @@ class Config(dict):
         jsonschema.validate(self.json_dict, self.get_schema_dict())
 
         self.exception_gui = self.json_dict.get('exception_gui')
-        if (self.exception_gui == 'notify-send' and
-            shutil.which('notify-send') is None):
-            raise ConfigError("'exception_gui' is 'notify-send' but it "
-                              'could not be found on the PATH')
-        elif (self.exception_gui != 'easygui' and
-              self.exception_gui is not None):
-            raise ConfigError("'exception_gui' {!r} unknown. "
-                              "Must be 'notify-send' or 'easygui'"
-                              .format(self.exception_gui))
 
         with self.exceptions_shown_as_gui():
             self.remove_old_log_files_enabled \
@@ -97,6 +89,20 @@ class Config(dict):
     @classmethod
     def get_schema_dict(cls):
         return json.loads(cls.get_schema())
+
+    @property
+    def exception_gui(self):
+        return self._exception_gui
+    @exception_gui.setter
+    def exception_gui(self, value):
+        if value == 'notify-send' and shutil.which('notify-send') is None:
+            raise ConfigError("'exception_gui' is 'notify-send' but it "
+                              'could not be found on the PATH')
+        elif value != 'easygui' and value is not None:
+            raise ConfigError("'exception_gui' {!r} unknown. "
+                              "Must be 'notify-send' or 'easygui'"
+                              .format(value))
+        self._exception_gui = value
 
     @staticmethod
     def show_notify_send_exception_gui():
@@ -379,11 +385,6 @@ class Subscription:
                 "Feed {!r} sub {!r} pattern '{}' not valid regex: {}"
                 .format(feed.name, self.name, pattern, ', '.join(error.args))
             ) from error
-        except ValueError as error:
-            raise ConfigError(
-                "Feed {!r} sub {!r} pattern '{}' has no group for the "
-                'episode number'.format(feed.name, self.name, pattern)
-            ) from error
         self.number = (None if number is None else
                        pkg_resources.parse_version(number))
         if directory is not None:
@@ -402,7 +403,10 @@ class Subscription:
     @regex.setter
     def regex(self, value):
         if not value.groups:
-            raise ValueError('regex must have a group for the episode number')
+            raise ConfigError(
+                "Feed {!r} sub {!r} pattern '{}' has no group for the "
+                'episode number'.format(self.feed.name, self.name, value)
+            )
         self._regex = value
 
     @property
