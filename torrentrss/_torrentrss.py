@@ -67,21 +67,21 @@ class Config(dict):
                               "Must be 'notify-send' or 'easygui'"
                               .format(self.exception_gui))
 
-        self.remove_old_log_files_enabled \
-            = self.json_dict.get('remove_old_log_files_enabled', True)
-        self.log_file_limit \
-            = self.json_dict.get('log_file_limit', DEFAULT_LOG_FILE_LIMIT)
-
-        self.default_directory = (
-            pathlib.Path(self.json_dict['default_directory'])
-            if 'default_directory' in self.json_dict else
-            TEMPORARY_DIRECTORY
-        )
-        self.default_command = (Command(self.json_dict['default_command'])
-                                if 'default_command' in self.json_dict
-                                else StartFileCommand())
-
         with self.exceptions_shown_as_gui():
+            self.remove_old_log_files_enabled \
+                = self.json_dict.get('remove_old_log_files_enabled', True)
+            self.log_file_limit \
+                = self.json_dict.get('log_file_limit', DEFAULT_LOG_FILE_LIMIT)
+
+            self.default_directory = (
+                pathlib.Path(self.json_dict['default_directory'])
+                if 'default_directory' in self.json_dict else
+                TEMPORARY_DIRECTORY
+            )
+            self.default_command = (Command(self.json_dict['default_command'])
+                                    if 'default_command' in self.json_dict
+                                    else StartFileCommand())
+
             self.update((name, Feed(config=self, name=name, **feed_dict))
                         for name, feed_dict in self.json_dict['feeds'].items())
 
@@ -100,7 +100,7 @@ class Config(dict):
 
     @staticmethod
     def show_notify_send_exception_gui():
-        text = ('A {} exception occured. <a href="{}">'
+        text = ('An exception of type {} occurred. <a href="{}">'
                 'Click to open the log directory.</a>'
                 .format(sys.last_type.__name__, LOG_DIR.as_uri()))
         return subprocess.Popen(['notify-send', '--app-name',
@@ -108,7 +108,8 @@ class Config(dict):
 
     @staticmethod
     def show_easygui_exception_gui():
-        text = 'A {} exception occured.'.format(sys.last_type.__name__)
+        text = ('An exception of type {} occurred.'
+                .format(sys.last_type.__name__))
         return easygui.exceptionbox(msg=text, title=NAME)
 
     @contextlib.contextmanager

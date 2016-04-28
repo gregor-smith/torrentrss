@@ -1,4 +1,5 @@
 import io
+import sys
 import json
 import time
 import hashlib
@@ -53,6 +54,49 @@ class TestMinimalConfig(unittest.TestCase):
         self.assertIsInstance(self.config.default_command,
                               torrentrss.StartFileCommand)
         self.assertIn('テスト feed', self.config)
+
+    @patch.object(torrentrss.Config, 'show_notify_send_exception_gui')
+    @patch.object(torrentrss.Config, 'show_easygui_exception_gui')
+    def _run_exceptions_shown_as_gui(self, *args, gui=None):
+        self.config.exception_gui = gui
+        with self.assertRaises(Exception), \
+             self.config.exceptions_shown_as_gui():
+            raise Exception
+        return args
+
+    def test_exceptions_shown_as_gui_none(self):
+        easygui, notify = self._run_exceptions_shown_as_gui()
+        easygui.assert_not_called()
+        notify.assert_not_called()
+
+    def test_exceptions_shown_as_gui_easygui(self):
+        easygui, notify = self._run_exceptions_shown_as_gui(gui='easygui')
+        easygui.assert_called_once_with()
+        notify.assert_not_called()
+
+    def test_exceptions_shown_as_gui_notify_send(self):
+        easygui, notify = self._run_exceptions_shown_as_gui(gui='notify-send')
+        easygui.assert_not_called()
+        notify.assert_called_once_with()
+
+    @patch('subprocess.Popen')
+    @patch.object(torrentrss, 'LOG_DIR', pathlib.PurePosixPath('/test'))
+    def test_show_notify_send_exception_gui(self, popen):
+        sys.last_type = Exception
+        expected_text = ('An exception of type Exception occurred. '
+                         '<a href="file:///test">Click to open the '
+                         'log directory.</a>')
+        expected_args = ['notify-send', '--app-name', 'torrentrss',
+                         'torrentrss', expected_text]
+        self.config.show_notify_send_exception_gui()
+        popen.assert_called_once_with(expected_args)
+
+    @patch('easygui.exceptionbox')
+    def test_show_easygui_exception_gui(self, easygui):
+        sys.last_type = Exception
+        expected_text = 'An exception of type Exception occurred.'
+        self.config.show_easygui_exception_gui()
+        easygui.assert_called_once_with(msg=expected_text, title='torrentrss')
 
     def test_remove_old_log_files(self):
         self.config.log_file_limit = 2
@@ -179,7 +223,7 @@ class TestMinimalConfigFeed(unittest.TestCase):
                                                          requests_get_mock,
                                                          *args):
         self._run_download_entry_torrent_file()
-        requests_get_mock.assert_called_with(None, headers={})
+        requests_get_mock.assert_called_once_with(None, headers={})
 
     def _torrent_path(self, filename):
         return self.directory.joinpath(filename) \
@@ -214,8 +258,8 @@ class TestMinimalConfigFeed(unittest.TestCase):
         self.feed.magnet_enabled = self.feed.torrent_url_enabled = False
         with patch.object(self.feed, 'download_entry_torrent_file') as mock:
             self._run_download_entry()
-            mock.assert_called_with(self.entry_torrent_link,
-                                    self.entry, self.directory)
+            mock.assert_called_once_with(self.entry_torrent_link,
+                                         self.entry, self.directory)
 
     def test_download_entry_magnet_url_file_all_disabled(self, *args):
         self.feed.magnet_enabled = self.feed.torrent_url_enabled = \
