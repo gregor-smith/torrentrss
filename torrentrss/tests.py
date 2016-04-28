@@ -7,7 +7,7 @@ import pathlib
 import tempfile
 import unittest
 import collections
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 
 from pkg_resources import parse_version
 
@@ -15,20 +15,102 @@ from . import _torrentrss as torrentrss
 
 minimal_config = '''{
     "feeds": {
-        "テスト feed": {
-            "url": "https://test.url/テスト",
+        "テスト feed 1": {
+            "url": "https://test.url/テスト1",
             "subscriptions": {
-                "テスト sub": {
-                    "pattern": "テスト filename ([0-9]+)"
+                "テスト sub 1": {
+                    "pattern": "テスト file feed 1 sub 1 ep ([0-9]+)"
                 },
                 "disabled sub": {
                     "pattern": "doesn't matter ([0-9]+)",
                     "enabled": false
+                },
+                "テスト sub 2": {
+                    "pattern": "テスト file feed 1 sub 2 ep ([0-9]+)",
+                    "number": "1"
+                },
+                "テスト sub 3": {
+                    "pattern": "テスト file feed 1 sub 3 ep ([0-9]+)",
+                    "number": "1"
                 }
             }
+        },
+        "テスト feed 2": {
+            "url": "https://test.url/テスト2",
+            "subscriptions": {
+                "テスト sub 1": {
+                    "pattern": "テスト file feed 2 sub 1 ep (S[0-9]{2}E[0-9]{2})",
+                    "number": "S01E01"
+                },
+                "テスト sub 2": {
+                    "pattern": "テスト file feed 2 sub 2 ep (S[0-9]{2}E[0-9]{2})",
+                    "number": "S99E99"
+                }
+            }
+        },
+        "disabled feed": {
+            "url": "doesn't matter",
+            "subscriptions": {},
+            "enabled": false
+        },
+        "enabled feed without subs": {
+            "url": "doesn't matter",
+            "subscriptions": {}
         }
     }
 }'''
+
+def title(**kwargs):
+    return ('テスト file feed {feed} sub {sub} ep {ep}'
+            .format_map(kwargs))
+
+def fallback_link(**kwargs):
+    return ('https://test.url/テスト/feed-{feed}-sub-{sub}-ep-{ep}-fallback'
+            .format_map(kwargs))
+
+def torrent_link(**kwargs):
+    return ('https://test.url/テスト/feed-{feed}-sub-{sub}-ep-{ep}-torrent'
+            .format_map(kwargs))
+
+def magnet_link(**kwargs):
+    return ('magnet:?テスト-feed-{feed}-sub-{sub}-ep-{ep}-magnet'
+            .format_map(kwargs))
+
+def non_torrent_entry_link():
+    return {'href': 'https://test.url/テスト/not-a-torrent-link',
+            'type': 'text/html'}
+
+def entry_dict(fallback_is_torrent=False, magnet=True, **kwargs):
+    entry = {'title': title(**kwargs)}
+    entry['links'] = links = [non_torrent_entry_link(),
+                              non_torrent_entry_link()]
+
+    torrent = torrent_link(**kwargs)
+    if fallback_is_torrent:
+        entry['link'] = torrent
+    else:
+        links.insert(1, {'href': torrent,
+                         'type': 'application/x-bittorrent'})
+        entry['link'] = fallback_link(**kwargs)
+    if magnet:
+        entry['torrent_magneturi'] = magnet_link(**kwargs)
+
+    return entry
+
+rss_feeds = {
+    'テスト feed 1': {'entries': [{'title': 'mismatch filename'},
+                               entry_dict(feed=1, sub=1, ep=2),
+                               {'title': 'mismatch filename 2'},
+                               entry_dict(feed=1, sub=2, ep=2),
+                               entry_dict(feed=1, sub=2, ep=1),
+                               entry_dict(feed=1, sub=1, ep=3),
+                               entry_dict(feed=1, sub=1, ep=1, magnet=False,
+                                          fallback_is_torrent=True)]},
+    'テスト feed 2': {'entries': [{'title': 'mismatch filename'},
+                               entry_dict(feed=2, sub=1, ep='S01E02',
+                                          magnet=False),
+                               entry_dict(feed=2, sub=2, ep='S99E98')]}
+}
 
 def config_from_string(string):
     with patch('io.open', return_value=io.StringIO(string)):
@@ -53,7 +135,19 @@ class TestMinimalConfig(unittest.TestCase):
                       torrentrss.TEMPORARY_DIRECTORY)
         self.assertIsInstance(self.config.default_command,
                               torrentrss.StartFileCommand)
-        self.assertIn('テスト feed', self.config)
+        self.assertIn('テスト feed 1', self.config)
+        self.assertIn('テスト feed 2', self.config)
+        self.assertIn('disabled feed', self.config)
+        self.assertIn('enabled feed without subs', self.config)
+
+    def test_setting_exception_gui_to_invalid_value(self):
+        with self.assertRaises(torrentrss.ConfigError):
+            self.config.exception_gui = 'test'
+
+    @patch('shutil.which', return_value=None)
+    def test_setting_exception_gui_to_notify_send_not_on_path(self, which):
+        with self.assertRaises(torrentrss.ConfigError):
+            self.config.exception_gui = 'notify-send'
 
     @patch.object(torrentrss.Config, 'show_notify_send_exception_gui')
     @patch.object(torrentrss.Config, 'show_easygui_exception_gui')
@@ -80,15 +174,6 @@ class TestMinimalConfig(unittest.TestCase):
         easygui.assert_not_called()
         notify.assert_called_once_with()
 
-    def test_setting_exception_gui_to_invalid_value(self):
-        with self.assertRaises(torrentrss.ConfigError):
-            self.config.exception_gui = 'test'
-
-    @patch('shutil.which', return_value=None)
-    def test_setting_exception_gui_to_notify_send_not_on_path(self, which):
-        with self.assertRaises(torrentrss.ConfigError):
-            self.config.exception_gui = 'notify-send'
-
     @patch('subprocess.Popen')
     @patch.object(torrentrss, 'LOG_DIR', pathlib.PurePosixPath('/test'))
     def test_show_notify_send_exception_gui(self, popen):
@@ -108,6 +193,38 @@ class TestMinimalConfig(unittest.TestCase):
         self.config.show_easygui_exception_gui()
         easygui.assert_called_once_with(msg=expected_text, title='torrentrss')
 
+    def test_check_feeds(self, *args):
+        self.config.torrent_file_enabled = False
+
+        feed_1 = self.config['テスト feed 1']
+        feed_2 = self.config['テスト feed 2']
+
+        self.assertIsNone(feed_1['テスト sub 1'].number)
+        self.assertEqual(feed_1['テスト sub 2'].number, parse_version('1'))
+        self.assertEqual(feed_1['テスト sub 3'].number, parse_version('1'))
+        self.assertEqual(feed_2['テスト sub 1'].number, parse_version('S01E01'))
+        self.assertEqual(feed_2['テスト sub 2'].number, parse_version('S99E99'))
+
+        with patch.object(torrentrss.Config, 'exceptions_shown_as_gui'), \
+             patch.object(torrentrss.StartFileCommand, '__call__') as start, \
+             patch.object(feed_1, 'fetch', return_value=rss_feeds[feed_1.name]), \
+             patch.object(feed_2, 'fetch', return_value=rss_feeds[feed_2.name]):
+            self.config.check_feeds()
+
+        expected = [call(magnet_link(feed=1, sub=1, ep=2)),
+                    call(magnet_link(feed=1, sub=1, ep=3)),
+                    call(torrent_link(feed=1, sub=1, ep=1)),
+                    call(magnet_link(feed=1, sub=2, ep=2)),
+                    call(torrent_link(feed=2, sub=1, ep='S01E02'))]
+
+        self.assertEqual(start.call_args_list, expected)
+
+        self.assertEqual(feed_1['テスト sub 1'].number, parse_version('3'))
+        self.assertEqual(feed_1['テスト sub 2'].number, parse_version('2'))
+        self.assertEqual(feed_1['テスト sub 3'].number, parse_version('1'))
+        self.assertEqual(feed_2['テスト sub 1'].number, parse_version('S01E02'))
+        self.assertEqual(feed_2['テスト sub 2'].number, parse_version('S99E99'))
+
     def test_remove_old_log_files(self):
         self.config.log_file_limit = 2
 
@@ -121,7 +238,7 @@ class TestMinimalConfig(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             directory = pathlib.Path(directory)
             for log in logs:
-                path = log_paths[log] = directory / log
+                path = log_paths[log] = directory.joinpath(log)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.touch()
                 time.sleep(0.01)  # to guarantee differing st_ctime
@@ -139,7 +256,7 @@ class TestMinimalConfig(unittest.TestCase):
             self.assertTrue(log_paths[logs[4]].exists())
 
     def _dump_and_load_number(self, number):
-        self.config['テスト feed']['テスト sub'].number = number
+        self.config['テスト feed 1']['テスト sub 1'].number = number
 
         # need to override the close method else the file would be closed by
         # the with block in save_new_episode_number
@@ -149,7 +266,8 @@ class TestMinimalConfig(unittest.TestCase):
             # which when called returns the StringIO return_value,
             # whose getvalue() method finally returns the dumped json string
             json_dict = json.loads(file().getvalue())
-        return json_dict['feeds']['テスト feed']['subscriptions']['テスト sub']
+        return (json_dict['feeds']['テスト feed 1']
+                ['subscriptions']['テスト sub 1'])
 
     def test_save_new_episode_number(self):
         sub = self._dump_and_load_number(parse_version('S01E01'))
@@ -164,29 +282,15 @@ class TestMinimalConfig(unittest.TestCase):
 @patch('requests.get', return_value=MagicMock(content=b''))
 class TestMinimalConfigFeed(unittest.TestCase):
     directory = pathlib.Path('テスト')
-    entry_filename = 'テスト filename 01'
-    entry_main_link = 'https://test.url/テスト/is-the-main-link'
-    entry_torrent_link = 'https://test.url/テスト/is-a-torrent-link'
-    entry_magnet_link = 'magnet:?is-a-magnet-link'
+    entry_title = title(feed=1, sub=1, ep=1)
+    entry_fallback_link = fallback_link(feed=1, sub=1, ep=1)
+    entry_torrent_link = torrent_link(feed=1, sub=1, ep=1)
+    entry_magnet_link = magnet_link(feed=1, sub=1, ep=1)
 
     def setUp(self):
+        self.entry = entry_dict(feed=1, sub=1, ep=1)
         self.config = config_from_string(minimal_config)
-        self.feed = self.config['テスト feed']
-        self.entry = {
-            'title': self.entry_filename,
-            'link': self.entry_main_link,
-            'links': [{'href': 'https://test.url/テスト/not-a-torrent-link',
-                       'type': 'text/html'},
-                      {'href': self.entry_torrent_link,
-                       'type': 'application/x-bittorrent'},
-                      {'href': 'https://test.url/テスト/not-a-torrent-link2',
-                       'type': 'text/html'}],
-            'torrent_magneturi': self.entry_magnet_link
-        }
-        self.rss = {'encoding': 'utf-8',
-                    'entries': [{'title': 'mismatch filename'},
-                                self.entry,
-                                {'title': 'mismatch filename 2'}]}
+        self.feed = self.config['テスト feed 1']
 
     def test_windows_forbidden_characters_regex(self, *args):
         original = '\テスト/ :string* full? of" <forbidden> characters|'
@@ -196,9 +300,11 @@ class TestMinimalConfigFeed(unittest.TestCase):
         self.assertEqual(result, desired)
 
     def test_properties(self, *args):
-        self.assertEqual(self.feed.name, 'テスト feed')
-        self.assertEqual(self.feed.url, 'https://test.url/テスト')
-        self.assertIn('テスト sub', self.feed)
+        self.assertEqual(self.feed.name, 'テスト feed 1')
+        self.assertEqual(self.feed.url, 'https://test.url/テスト1')
+        self.assertIn('テスト sub 1', self.feed)
+        self.assertIn('disabled sub', self.feed)
+        self.assertIn('テスト sub 2', self.feed)
         self.assertIsNone(self.feed.user_agent)
         self.assertTrue(self.feed.enabled)
         self.assertTrue(self.feed.magnet_enabled)
@@ -213,7 +319,7 @@ class TestMinimalConfigFeed(unittest.TestCase):
     def test_torrent_url_for_entry_no_torrent_mimetype_link(self, *args):
         self.entry['links'][1]['type'] = 'application/x-not-bittorrent'
         self.assertEqual(self.feed.torrent_url_for_entry(self.entry),
-                         self.entry_main_link)
+                         self.entry_fallback_link)
 
     def test_magnet_uri_for_entry(self, *args):
         self.assertEqual(self.feed.magnet_uri_for_entry(self.entry),
@@ -225,15 +331,24 @@ class TestMinimalConfigFeed(unittest.TestCase):
             self.feed.magnet_uri_for_entry(self.entry)
 
     def _run_download_entry_torrent_file(self, *args):
-        return self.feed.download_entry_torrent_file(url=None,
-                                                     rss_entry=self.entry,
-                                                     directory=self.directory)
+        return self.feed.download_entry_torrent_file(
+            url=None, rss_entry=self.entry, directory=self.directory
+        )
 
     def test_download_entry_torrent_file_none_user_agent(self,
-                                                         requests_get_mock,
+                                                         requests_get,
                                                          *args):
         self._run_download_entry_torrent_file()
-        requests_get_mock.assert_called_once_with(None, headers={})
+        requests_get.assert_called_once_with(None, headers={})
+
+    def test_download_entry_torrent_file_with_user_agent(self,
+                                                         requests_get,
+                                                         *args):
+        self.feed.user_agent = user_agent = 'テスト user agent'
+        self._run_download_entry_torrent_file()
+        requests_get.assert_called_once_with(
+            None, headers={'User-Agent': user_agent}
+        )
 
     def _torrent_path(self, filename):
         return self.directory.joinpath(filename) \
@@ -248,7 +363,7 @@ class TestMinimalConfigFeed(unittest.TestCase):
 
     def test_download_entry_torrent_file_no_hidden_filename(self, *args):
         self.feed.hide_torrent_filename_enabled = False
-        desired_path = self._torrent_path(self.entry_filename)
+        desired_path = self._torrent_path(self.entry_title)
         path = self._run_download_entry_torrent_file()
         self.assertEqual(path.as_posix(), desired_path)
 
@@ -277,18 +392,28 @@ class TestMinimalConfigFeed(unittest.TestCase):
         with self.assertRaises(torrentrss.FeedError):
             self._run_download_entry()
 
-    def test_matching_subs(self, *args):
-        with patch.object(self.feed, 'fetch', return_value=self.rss):
-            subs = self.feed.matching_subs()
-            sub, entry, number = next(subs)
-        self.assertIs(entry, self.entry)
-        self.assertEqual(number, parse_version('01'))
-        with self.assertRaises(StopIteration):
-            next(subs)
-
     def test_enabled_subs(self, *args):
         self.assertNotIn(self.feed['disabled sub'],
                          self.feed.enabled_subs())
+
+    #def test_matching_subs(self, *args):
+    #    with patch.object(self.feed, 'fetch',
+    #                      return_value=rss_feeds['テスト feed 1']):
+    #        subs = list(self.feed.matching_subs())
+    #    self.assertTrue(subs)
+
+    #    sub_1 = self.feed['テスト sub 1']
+    #    sub_2 = self.feed['テスト sub 2']
+    #    expected_subs_and_numbers = [(sub_1, parse_version('2')),
+    #                                 (sub_2, parse_version('2')),
+    #                                 (sub_2, parse_version('1')),
+    #                                 (sub_1, parse_version('3')),
+    #                                 (sub_1, parse_version('1'))]
+    #    for index, triple in enumerate(subs):
+    #        sub, entry, number = triple
+    #        expected_sub, expected_number = expected_subs_and_numbers[index]
+    #        self.assertEqual(sub, expected_sub)
+    #        self.assertEqual(number, expected_number)
 
 class TestSubscription(unittest.TestCase):
     default_directory = torrentrss.TEMPORARY_DIRECTORY

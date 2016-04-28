@@ -25,10 +25,10 @@ VERSION = '0.5.1'
 WINDOWS = os.name == 'nt'
 
 CONFIG_DIRECTORY = pathlib.Path(click.get_app_dir(NAME))
-CONFIG_PATH = CONFIG_DIRECTORY / 'config.json'
+CONFIG_PATH = CONFIG_DIRECTORY.joinpath('config.json')
 CONFIG_SCHEMA_FILENAME = 'config_schema.json'
 
-LOG_DIR = CONFIG_DIRECTORY / 'logs'
+LOG_DIR = CONFIG_DIRECTORY.joinpath('logs')
 DEFAULT_LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
 DEFAULT_LOG_FILE_LIMIT = 10
@@ -46,7 +46,7 @@ class ConfigError(TorrentRSSError):
 class FeedError(TorrentRSSError):
     pass
 
-class Config(dict):
+class Config(collections.OrderedDict):
     def __init__(self, path=CONFIG_PATH):
         super().__init__()
         self._exception_gui = None
@@ -224,7 +224,7 @@ class StartFileCommand(Command):
         else:
             click.launch(path_or_url)
 
-class Feed(dict):
+class Feed(collections.OrderedDict):
     windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
 
     def __init__(self, config, name, url, subscriptions, user_agent=None,
@@ -332,7 +332,7 @@ class Feed(dict):
 
         title = (hashlib.sha256(response.content).hexdigest()
                  if self.hide_torrent_filename_enabled else rss_entry['title'])
-        path = (directory / title).with_suffix('.torrent')
+        path = directory.joinpath(title).with_suffix('.torrent')
         if WINDOWS:
             new_name = self.windows_forbidden_characters_regex.sub('_',
                                                                    path.name)
@@ -445,7 +445,7 @@ def configure_logging(path_format=DEFAULT_LOG_PATH_FORMAT,
     level = 0
 
     if file_level is not None:
-        path = LOG_DIR / datetime.datetime.now().strftime(path_format)
+        path = LOG_DIR.joinpath(datetime.datetime.now().strftime(path_format))
         path.parent.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(str(path), encoding='utf-8')
         file_handler.setLevel(file_level)
