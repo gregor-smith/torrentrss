@@ -46,44 +46,52 @@ class ConfigError(TorrentRSSError):
 class FeedError(TorrentRSSError):
     pass
 
-class Config:
+class Config(dict):
     def __init__(self, path=CONFIG_PATH):
+        super().__init__()
+
         self.path = path
         with path.open(encoding='utf-8') as file:
-            self.json_dict = json.load(file, object_pairs_hook=collections.OrderedDict)
+            self.json_dict \
+                = json.load(file, object_pairs_hook=collections.OrderedDict)
         jsonschema.validate(self.json_dict, self.get_schema_dict())
 
         self.exception_gui = self.json_dict.get('exception_gui')
-        if self.exception_gui == 'notify-send' and shutil.which('notify-send') is None:
+        if (self.exception_gui == 'notify-send' and
+            shutil.which('notify-send') is None):
             raise ConfigError("'exception_gui' is 'notify-send' but it "
                               'could not be found on the PATH')
-        elif self.exception_gui != 'easygui' and self.exception_gui is not None:
-            raise ConfigError("'exception_gui' {!r} unknown. Must be 'notify-send' or 'easygui'"
+        elif (self.exception_gui != 'easygui' and
+              self.exception_gui is not None):
+            raise ConfigError("'exception_gui' {!r} unknown. "
+                              "Must be 'notify-send' or 'easygui'"
                               .format(self.exception_gui))
 
-        self.remove_old_log_files_enabled = self.json_dict.get('remove_old_log_files_enabled',
-                                                               True)
-        self.log_file_limit = self.json_dict.get('log_file_limit', DEFAULT_LOG_FILE_LIMIT)
+        self.remove_old_log_files_enabled \
+            = self.json_dict.get('remove_old_log_files_enabled', True)
+        self.log_file_limit \
+            = self.json_dict.get('log_file_limit', DEFAULT_LOG_FILE_LIMIT)
 
-        self.default_directory = (pathlib.Path(self.json_dict['default_directory'])
-                                  if 'default_directory' in self.json_dict
-                                  else TEMPORARY_DIRECTORY)
+        self.default_directory = (
+            pathlib.Path(self.json_dict['default_directory'])
+            if 'default_directory' in self.json_dict else
+            TEMPORARY_DIRECTORY
+        )
         self.default_command = (Command(self.json_dict['default_command'])
                                 if 'default_command' in self.json_dict
                                 else StartFileCommand())
 
         with self.exceptions_shown_as_gui():
-            self.feeds = {name: Feed(name, **feed_dict,
-                                     default_directory=self.default_directory,
-                                     default_command=self.default_command)
-                          for name, feed_dict in self.json_dict['feeds'].items()}
+            self.update((name, Feed(config=self, name=name, **feed_dict))
+                        for name, feed_dict in self.json_dict['feeds'].items())
 
     def __repr__(self):
         return '{}(path={!r})'.format(type(self).__name__, self.path)
 
     @staticmethod
     def get_schema():
-        schema = pkg_resources.resource_string(__name__, CONFIG_SCHEMA_FILENAME)
+        schema = pkg_resources.resource_string(__name__,
+                                               CONFIG_SCHEMA_FILENAME)
         return str(schema, encoding='utf-8')
 
     @classmethod
@@ -92,9 +100,11 @@ class Config:
 
     @staticmethod
     def show_notify_send_exception_gui():
-        text = ('A {} exception occured. <a href="{}">Click to open the log directory.</a>'
+        text = ('A {} exception occured. <a href="{}">'
+                'Click to open the log directory.</a>'
                 .format(sys.last_type.__name__, LOG_DIR.as_uri()))
-        return subprocess.Popen(['notify-send', '--app-name', NAME, NAME, text])
+        return subprocess.Popen(['notify-send', '--app-name',
+                                 NAME, NAME, text])
 
     @staticmethod
     def show_easygui_exception_gui():
@@ -114,19 +124,20 @@ class Config:
 
     def check_feeds(self):
         with self.exceptions_shown_as_gui():
-            for feed in self.feeds.values():
-                if feed.enabled and any(feed.enabled_subscriptions()):
-                    # List is called here as otherwise subscription.number would be updated during the
-                    # loop before being checked by the next iteration of feed.matching_subscriptions,
-                    # so if a subscription's number was originally 2 and there were entries with 4 and 3,
-                    # 4 would become the subscription's number, and because 4 > 3, 3 would be skipped.
-                    # Calling list first checks all entries against the subscription's original number,
-                    # avoiding this problem.
-                    for subscription, entry, number in list(feed.matching_subscriptions()):
-                        path_or_url = feed.download_entry(entry, subscription.directory)
-                        subscription.command(path_or_url)
-                        if subscription.has_lower_number_than(number):
-                            subscription.number = number
+            for feed in self.values():
+                if feed.enabled and any(feed.enabled_subs()):
+                    # List is called here as otherwise sub.number would be
+                    # updated during the loop before being checked by the next
+                    # iteration of feed.matching_subs, so if a sub's number was
+                    # originally 2 and there were entries with 4 and 3, 4 would
+                    # become the sub's number, and because 4 > 3, 3 would be
+                    # skipped. Calling list first checks all entries against
+                    # the sub's original number, avoiding this problem.
+                    for sub, entry, number in list(feed.matching_subs()):
+                        path_or_url = feed.download_entry(entry, sub.directory)
+                        sub.command(path_or_url)
+                        if sub.has_lower_number_than(number):
+                            sub.number = number
 
     @staticmethod
     def log_paths_by_newest_first():
@@ -147,14 +158,13 @@ class Config:
                 os.rmdir(directory)
 
     def save_new_episode_numbers(self):
-        logging.info("Writing new episode numbers to '%s'", self.path)
-        feeds_dict = self.json_dict['feeds']
-        for feed_name, feed in self.feeds.items():
-            feed_subscriptions_dict = feeds_dict[feed_name]['subscriptions']
-            for subscription_name, subscription in feed.subscriptions.items():
-                if subscription.number is not None:
-                    feed_subscriptions_dict[subscription_name]['number'] = \
-                        str(subscription.number)
+        logging.info("Writing episode numbers to '%s'", self.path)
+        json_feeds = self.json_dict['feeds']
+        for feed_name, feed in self.items():
+            json_subs = json_feeds[feed_name]['subscriptions']
+            for sub_name, sub in feed.items():
+                if sub.number is not None:
+                    json_subs[sub_name]['number'] = str(sub.number)
         with self.path.open('w', encoding='utf-8') as file:
             json.dump(self.json_dict, file, indent='\t')
 
@@ -200,20 +210,20 @@ class StartFileCommand(Command):
         if isinstance(path_or_url, pathlib.Path):
             path_or_url = str(path_or_url)
         logging.debug("Launching %r with default program", path_or_url)
-        # click.launch uses os.system on Windows, which shows a cmd.exe window for a split second.
-        # hence os.startfile is preferred for that platform.
+        # click.launch uses os.system on Windows, which shows a cmd.exe window
+        # for a split second. Hence os.startfile is preferred.
         if WINDOWS:
             os.startfile(path_or_url)
         else:
             click.launch(path_or_url)
 
-class Feed:
+class Feed(dict):
     windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
 
-    def __init__(self, name, url, subscriptions, user_agent=None, enabled=True,
-                 magnet_enabled=True, torrent_url_enabled=True,
-                 torrent_file_enabled=True, hide_torrent_filename_enabled=True,
-                 **kwargs):
+    def __init__(self, config, name, url, subscriptions, user_agent=None,
+                 enabled=True, magnet_enabled=True, torrent_url_enabled=True,
+                 torrent_file_enabled=True,
+                 hide_torrent_filename_enabled=True):
         if not any([magnet_enabled, torrent_url_enabled,
                     torrent_file_enabled]):
             raise ConfigError(
@@ -222,12 +232,9 @@ class Feed:
                 'must be true'.format(name)
             )
 
+        self.config = config
         self.name = name
         self.url = url
-        self.subscriptions = {
-            name: Subscription(self, name, **subscription_dict, **kwargs)
-            for name, subscription_dict in subscriptions.items()
-        }
         self.user_agent = user_agent
         self.enabled = enabled
         self.magnet_enabled = magnet_enabled
@@ -235,10 +242,13 @@ class Feed:
         self.torrent_file_enabled = torrent_file_enabled
         self.hide_torrent_filename_enabled = hide_torrent_filename_enabled
 
+        self.update((name, Subscription(feed=self, name=name, **sub_dict))
+                    for name, sub_dict in subscriptions.items())
+
     def __repr__(self):
-        return ('{}(name={!r}, url={!r}, subscriptions={})'
+        return ('{}(name={!r}, url={!r}, subs={})'
                 .format(type(self).__name__, self.name,
-                        self.url, self.subscriptions.keys()))
+                        self.url, list(self.keys())))
 
     def fetch(self):
         rss = feedparser.parse(self.url)
@@ -249,32 +259,34 @@ class Feed:
         logging.info('Feed %r: downloaded url %r', self.name, self.url)
         return rss
 
-    def enabled_subscriptions(self):
-        for subscription in self.subscriptions.values():
-            if subscription.enabled:
-                yield subscription
+    def enabled_subs(self):
+        for sub in self.values():
+            if sub.enabled:
+                yield sub
 
-    def matching_subscriptions(self):
+    def matching_subs(self):
         rss = self.fetch()
-        for subscription in self.enabled_subscriptions():
-            logging.debug("Subscription %r: checking entries against pattern: %s",
-                          subscription.name, subscription.regex.pattern)
-            for index, entry in enumerate(rss.entries):
-                match = subscription.regex.search(entry['title'])
+        for sub in self.enabled_subs():
+            logging.debug('Sub %r: checking entries against pattern: %s',
+                          sub.name, sub.regex.pattern)
+            for index, entry in enumerate(rss['entries']):
+                match = sub.regex.search(entry['title'])
                 if match:
                     number = pkg_resources.parse_version(match.group(1))
-                    if subscription.has_lower_number_than(number):
-                        logging.info('MATCH: entry %s %r has greater number than subscription %r: '
-                                     '%s > %s', index, entry['title'], subscription.name,
-                                     number, subscription.number)
-                        yield subscription, entry, number
+                    if sub.has_lower_number_than(number):
+                        logging.info('MATCH: entry %s %r has greater number '
+                                     'than sub %r: %s > %s',
+                                     index, entry['title'], sub.name,
+                                     number, sub.number)
+                        yield sub, entry, number
                     else:
-                        logging.debug('NO MATCH: entry %s %r matches but number less than or '
-                                      'equal to subscription %r: %s <= %s', index, entry['title'],
-                                      subscription.name, number, subscription.number)
+                        logging.debug('NO MATCH: entry %s %r matches but '
+                                      'number less than or equal to sub %r: '
+                                      '%s <= %s', index, entry['title'],
+                                      sub.name, number, sub.number)
                 else:
-                    logging.debug('NO MATCH: entry %s %r against subscription %r',
-                                  index, entry['title'], subscription.name)
+                    logging.debug('NO MATCH: entry %s %r against sub %r',
+                                  index, entry['title'], sub.name)
 
     @staticmethod
     def torrent_url_for_entry(rss_entry):
@@ -290,7 +302,7 @@ class Feed:
         return link
 
     @staticmethod
-    def magnet_link_for_entry(rss_entry):
+    def magnet_uri_for_entry(rss_entry):
         try:
             magnet = rss_entry['torrent_magneturi']
             logging.debug('Entry %r: has magnet url %r',
@@ -328,7 +340,7 @@ class Feed:
     def download_entry(self, rss_entry, directory):
         if self.magnet_enabled:
             with contextlib.suppress(KeyError):
-                return self.magnet_link_for_entry(rss_entry)
+                return self.magnet_uri_for_entry(rss_entry)
 
         url = self.torrent_url_for_entry(rss_entry)
         if self.torrent_url_enabled:
@@ -353,34 +365,76 @@ class Feed:
                             .format(self.name, url)) from error
 
 class Subscription:
-    def __init__(self, feed, name, pattern, default_directory, default_command,
-                 number=None, directory=None, command=None, enabled=True):
+    def __init__(self, feed, name, pattern, number=None,
+                 directory=None, command=None, enabled=True):
+        self._regex = self._directory = self._command = None
+
         self.feed = feed
         self.name = name
         try:
             self.regex = re.compile(pattern)
         except re.error as error:
-            raise ConfigError("Feed {!r} subscription {!r} pattern '{}' not valid regex: {}"
-                              .format(feed.name, self.name, pattern, ' - '.join(error.args))) from error
-        if not self.regex.groups:
-            raise ConfigError("Feed {!r} subscription {!r} pattern '{}' has no group "
-                              'for the episode number'.format(feed.name, self.name, pattern))
+            raise ConfigError(
+                "Feed {!r} sub {!r} pattern '{}' not valid regex: {}"
+                .format(feed.name, self.name, pattern, ', '.join(error.args))
+            ) from error
+        except ValueError as error:
+            raise ConfigError(
+                "Feed {!r} sub {!r} pattern '{}' has no group for the "
+                'episode number'.format(feed.name, self.name, pattern)
+            ) from error
         self.number = (None if number is None else
                        pkg_resources.parse_version(number))
-        self.directory = (default_directory if directory is None else
-                          pathlib.Path(directory))
-        self.command = default_command if command is None else Command(command)
+        if directory is not None:
+            self.directory = pathlib.Path(directory)
+        if command is not None:
+            self.command = Command(command)
         self.enabled = enabled
 
+    @property
+    def config(self):
+        return self.feed.config
+
+    @property
+    def regex(self):
+        return self._regex
+    @regex.setter
+    def regex(self, value):
+        if not value.groups:
+            raise ValueError('regex must have a group for the episode number')
+        self._regex = value
+
+    @property
+    def directory(self):
+        return self._directory or self.config.default_directory
+    @directory.setter
+    def directory(self, value):
+        self._directory = value
+
+    @property
+    def command(self):
+        return self._command or self.config.default_command
+    @command.setter
+    def command(self, value):
+        self._command = value
+
     def __repr__(self):
-        return ('{}(name={!r}, pattern={!r}, directory={!r}, command={!r}, enabled={}, number={})'
-                .format(type(self).__name__, self.name, self.regex.pattern,
-                        self.directory, self.command, self.enabled, self.number))
+        return (
+            '{}(name={!r}, pattern={!r}, directory={!r}, '
+            'command={!r}, enabled={}, number={})'
+            .format(type(self).__name__, self.name, self.regex.pattern,
+                    self.directory, self.command, self.enabled, self.number)
+        )
 
     def has_lower_number_than(self, other_number):
-        return self.number is None or self.number < other_number
+        if other_number is None:
+            return False
+        if self.number is None:
+            return True
+        return self.number < other_number
 
-def configure_logging(path_format=DEFAULT_LOG_PATH_FORMAT, message_format=LOG_MESSAGE_FORMAT,
+def configure_logging(path_format=DEFAULT_LOG_PATH_FORMAT,
+                      message_format=LOG_MESSAGE_FORMAT,
                       file_level=None, console_level=None):
     handlers = []
     level = 0
@@ -403,13 +457,15 @@ def configure_logging(path_format=DEFAULT_LOG_PATH_FORMAT, message_format=LOG_ME
             level = console_level
 
     if handlers:
-        logging.basicConfig(format=message_format, handlers=handlers, level=level)
+        logging.basicConfig(format=message_format,
+                            handlers=handlers, level=level)
 
     # silence requests' logging in all but the worst cases
     logging.getLogger('requests').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.WARNING)
 
-logging_level_choice = click.Choice(['DISABLE', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
+logging_level_choice = click.Choice(['DISABLE', 'DEBUG', 'INFO',
+                                     'WARNING', 'ERROR', 'CRITICAL'])
 
 def logging_level_from_string(context, parameter, level):
     return getattr(logging, level, None)
@@ -420,7 +476,8 @@ def print_schema(context, parameter, value):
         context.exit()
 
 @click.command()
-@click.option('--log-path-format', default=DEFAULT_LOG_PATH_FORMAT, show_default=True)
+@click.option('--log-path-format', default=DEFAULT_LOG_PATH_FORMAT,
+              show_default=True)
 @click.option('--file-logging-level', default='DEBUG', show_default=True,
               type=logging_level_choice, callback=logging_level_from_string)
 @click.option('--console-logging-level', default='INFO', show_default=True,
@@ -436,8 +493,10 @@ def main(log_path_format, file_logging_level, console_logging_level):
         try:
             config = Config()
         except FileNotFoundError as error:
-            raise click.Abort("No config file found at '{}'. Try '--print-schema'."
-                              .format(CONFIG_PATH)) from error
+            raise click.Abort(
+                "No config file found at '{}'. Try '--print-schema'."
+                .format(CONFIG_PATH)
+            ) from error
         config.check_feeds()
         config.save_new_episode_numbers()
         if config.remove_old_log_files_enabled:
