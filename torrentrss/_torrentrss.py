@@ -84,7 +84,7 @@ class Config(collections.OrderedDict):
     def get_schema():
         schema = pkg_resources.resource_string(__name__,
                                                CONFIG_SCHEMA_FILENAME)
-        return str(schema, encoding='utf-8')
+        return str(schema, encoding='utf-8').replace(os.linesep, '\n')
 
     @classmethod
     def get_schema_dict(cls):

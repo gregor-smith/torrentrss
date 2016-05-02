@@ -7,8 +7,9 @@ setuptools.setup(
     name='torrentrss',
     version='0.5.1',
     license='MIT',
-    description=('An RSS torrent fetcher. Matches entries with regexp, keeps track of episode '
-                 'numbers, allows custom commands, supports magnet links, and more.'),
+    description=('An RSS torrent fetcher. Matches entries with regexp, '
+                 'keeps track of episode numbers, allows custom commands, '
+                 'magnet links, and more.'),
     long_description=readme,
     author='Gregor Smith',
     author_email='gregor_smith@outlook.com',
