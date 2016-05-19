@@ -70,9 +70,8 @@ class Config(collections.OrderedDict):
                 if 'default_directory' in self.json_dict else
                 TEMPORARY_DIRECTORY
             )
-            self.default_command = (Command(self.json_dict['default_command'])
-                                    if 'default_command' in self.json_dict
-                                    else StartFileCommand())
+            self.default_command \
+                = Command(self.json_dict.get('default_command'))
 
             self.update((name, Feed(config=self, name=name, **feed_dict))
                         for name, feed_dict in self.json_dict['feeds'].items())
@@ -178,7 +177,7 @@ class Config(collections.OrderedDict):
 class Command:
     path_substitution_regex = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
 
-    def __init__(self, arguments):
+    def __init__(self, arguments=None):
         self.arguments = arguments
 
     def __repr__(self):
@@ -197,32 +196,25 @@ class Command:
             yield self.path_substitution_regex.sub(replacer, argument)
 
     def __call__(self, path_or_url):
-        if WINDOWS:
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
-        else:
-            startupinfo = None
-        arguments = list(self.arguments_with_substituted_path(path_or_url))
-        logging.info('Launching subprocess with arguments %s', arguments)
-        return subprocess.Popen(arguments, startupinfo=startupinfo)
-
-class StartFileCommand(Command):
-    def __init__(self):
-        pass
-
-    def __repr__(self):
-        return type(self).__name__
-
-    def __call__(self, path_or_url):
         if isinstance(path_or_url, pathlib.Path):
             path_or_url = str(path_or_url)
-        logging.debug("Launching %r with default program", path_or_url)
-        # click.launch uses os.system on Windows, which shows a cmd.exe window
-        # for a split second. Hence os.startfile is preferred.
-        if WINDOWS:
-            os.startfile(path_or_url)
+        if self.arguments is None:
+            logging.debug("Launching %r with default program", path_or_url)
+            # click.launch uses os.system on Windows, which shows a cmd.exe
+            # window for a split second. Hence os.startfile is preferred.
+            if WINDOWS:
+                os.startfile(path_or_url)
+            else:
+                click.launch(path_or_url)
         else:
-            click.launch(path_or_url)
+            if WINDOWS:
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
+            else:
+                startupinfo = None
+            arguments = list(self.arguments_with_substituted_path(path_or_url))
+            logging.info('Launching subprocess with arguments %s', arguments)
+            subprocess.Popen(arguments, startupinfo=startupinfo)
 
 class Feed(collections.OrderedDict):
     windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')

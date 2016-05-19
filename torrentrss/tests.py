@@ -26,7 +26,7 @@ class TestCommand(unittest.TestCase):
 
 class TestSubscription(unittest.TestCase):
     default_directory = torrentrss.TEMPORARY_DIRECTORY
-    default_command = torrentrss.StartFileCommand()
+    default_command = torrentrss.Command()
 
     def _mock_feed(self):
         feed = MagicMock()
@@ -339,8 +339,7 @@ class TestConfig(unittest.TestCase):
                          torrentrss.DEFAULT_LOG_FILE_LIMIT)
         self.assertIs(self.config.default_directory,
                       torrentrss.TEMPORARY_DIRECTORY)
-        self.assertIsInstance(self.config.default_command,
-                              torrentrss.StartFileCommand)
+        self.assertIsNone(self.config.default_command.arguments)
         self.assertIn('テスト feed 1', self.config)
         self.assertIn('テスト feed 2', self.config)
         self.assertIn('disabled feed', self.config)
@@ -412,7 +411,7 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(feed_2['テスト sub 1'].number, parse_version('S01E01'))
         self.assertEqual(feed_2['テスト sub 2'].number, parse_version('S99E99'))
 
-        with patch.object(torrentrss.StartFileCommand, '__call__') as start, \
+        with patch.object(torrentrss.Command, '__call__') as start, \
              patch.object(feed_1, 'fetch',
                           return_value=rss_feeds[feed_1.name]), \
              patch.object(feed_2, 'fetch',
