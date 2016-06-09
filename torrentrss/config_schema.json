@@ -71,9 +71,13 @@
 											"description": "A regular expression to match the torrents you want from the RSS feed. Must have a group to capture the episode number, like so: ([0-9]{2}). Because the config is a JSON file, double backslashes are required.",
 											"type": "string"
 										},
-										"number": {
-											"description": "The current episode number. Note that the type is a string - the episode number does not have to be exclusively digits. This property is updated automatically when the program downloads a new torrent for this subscription. Should be left alone unless for example you're adding a subscription and want it to start on episode 3.",
-											"type": "string"
+										"episode_number": {
+											"description": "The current episode number. This and 'series_number' below are updated automatically when the program downloads a new torrent for this subscription. Should be left alone unless for example you're adding a subscription and want it to start on episode 3.",
+											"type": "integer"
+										},
+										"series_number": {
+											"description": "The current series number.",
+											"type": "integer"
 										},
 										"directory": {
 											"description": "The directory to which torrent files are downloaded. If missing, 'default_directory' is used.",

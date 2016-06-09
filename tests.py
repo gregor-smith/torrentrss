@@ -1,4 +1,5 @@
 import io
+import re
 import sys
 import json
 import time
@@ -9,9 +10,7 @@ import unittest
 import collections
 from unittest.mock import patch, MagicMock, call
 
-from pkg_resources import parse_version
-
-from . import _torrentrss as torrentrss
+import torrentrss
 
 # TODO
 # configure_logging() tests
@@ -24,6 +23,26 @@ class TestCommand(unittest.TestCase):
         self.assertEqual(list(command.arguments_with_substituted_path(path)),
                          ['command', path, '--option'])
 
+class TestEpisodeNumber(unittest.TestCase):
+    def test_comparison(self):
+        self.assertGreater(torrentrss.EpisodeNumber(None, 1),
+                           torrentrss.EpisodeNumber(None, None))
+        self.assertGreater(torrentrss.EpisodeNumber(None, 2),
+                           torrentrss.EpisodeNumber(None, 1))
+        self.assertGreater(torrentrss.EpisodeNumber(1, 1),
+                           torrentrss.EpisodeNumber(None, None))
+        self.assertGreater(torrentrss.EpisodeNumber(2, 1),
+                           torrentrss.EpisodeNumber(1, 2))
+
+    def test_from_regex_match(self):
+        match = re.search(r'S(?P<series>[0-9]{2})E(?P<episode>[0-9]{2})',
+                          'S01E01')
+        self.assertEqual(torrentrss.EpisodeNumber(1, 1),
+                         torrentrss.EpisodeNumber.from_regex_match(match))
+        match = re.search(r'S[0-9]{2}E(?P<episode>[0-9]{2})', 'S01E01')
+        self.assertEqual(torrentrss.EpisodeNumber(None, 1),
+                         torrentrss.EpisodeNumber.from_regex_match(match))
+
 class TestSubscription(unittest.TestCase):
     default_directory = torrentrss.TEMPORARY_DIRECTORY
     default_command = torrentrss.Command()
@@ -34,18 +53,20 @@ class TestSubscription(unittest.TestCase):
         feed.config.default_command = self.default_command
         return feed
 
-    def _minimal_sub(self, feed=None, name='', pattern='()', **kwargs):
+    def _minimal_sub(self, feed=None, name='',
+                     pattern=r'(?P<episode>)', **kwargs):
         return torrentrss.Subscription(feed=feed or self._mock_feed(),
                                        name=name, pattern=pattern, **kwargs)
 
     def test_minimal_properties(self):
         name = 'テスト sub'
-        pattern = r'テスト filename ([0-9]+)'
+        pattern = r'テスト filename (?P<episode>[0-9]+)'
         sub = self._minimal_sub(name=name, pattern=pattern)
 
         self.assertEqual(sub.name, name)
         self.assertEqual(sub.regex.pattern, pattern)
-        self.assertIsNone(sub.number)
+        self.assertIsNone(sub.number.series)
+        self.assertIsNone(sub.number.episode)
         self.assertIs(sub.directory, self.default_directory)
         self.assertIs(sub.command, self.default_command)
         self.assertTrue(sub.enabled)
@@ -67,39 +88,25 @@ class TestSubscription(unittest.TestCase):
         with self.assertRaises(torrentrss.ConfigError):
             self._minimal_sub(pattern='no group in sight')
 
-    def test_has_lower_number_than(self):
-        sub = self._minimal_sub(number='00')
-        self.assertFalse(sub.has_lower_number_than(None))
-        self.assertTrue(sub.has_lower_number_than(parse_version('01')))
-
-        sub.number = parse_version('S01E01')
-        self.assertTrue(sub.has_lower_number_than(parse_version('S01E02')))
-        self.assertTrue(sub.has_lower_number_than(parse_version('S02E01')))
-
-        sub.number = None
-        self.assertFalse(sub.has_lower_number_than(None))
-        self.assertTrue(sub.has_lower_number_than(parse_version('01')))
-        self.assertTrue(sub.has_lower_number_than(parse_version('S01E01')))
-
 config_string = '''{
     "feeds": {
         "テスト feed 1": {
             "url": "https://test.url/テスト1",
             "subscriptions": {
                 "テスト sub 1": {
-                    "pattern": "テスト file feed 1 sub 1 ep ([0-9]+)"
+                    "pattern": "テスト file feed 1 sub 1 ep (?P<episode>[0-9]+)"
                 },
                 "disabled sub": {
-                    "pattern": "doesn't matter ([0-9]+)",
+                    "pattern": "doesn't matter (?P<episode>[0-9]+)",
                     "enabled": false
                 },
                 "テスト sub 2": {
-                    "pattern": "テスト file feed 1 sub 2 ep ([0-9]+)",
-                    "number": "1"
+                    "pattern": "テスト file feed 1 sub 2 ep (?P<episode>[0-9]+)",
+                    "episode_number": 1
                 },
                 "テスト sub 3": {
-                    "pattern": "テスト file feed 1 sub 3 ep ([0-9]+)",
-                    "number": "1"
+                    "pattern": "テスト file feed 1 sub 3 ep (?P<episode>[0-9]+)",
+                    "episode_number": 1
                 }
             }
         },
@@ -107,12 +114,14 @@ config_string = '''{
             "url": "https://test.url/テスト2",
             "subscriptions": {
                 "テスト sub 1": {
-                    "pattern": "テスト file feed 2 sub 1 ep (S[0-9]{2}E[0-9]{2})",
-                    "number": "S01E01"
+                    "pattern": "テスト file feed 2 sub 1 ep S(?P<series>[0-9]+)E(?P<episode>[0-9]+)",
+                    "series_number": 1,
+                    "episode_number": 1
                 },
                 "テスト sub 2": {
-                    "pattern": "テスト file feed 2 sub 2 ep (S[0-9]{2}E[0-9]{2})",
-                    "number": "S99E99"
+                    "pattern": "テスト file feed 2 sub 2 ep S(?P<series>[0-9]+)E(?P<episode>[0-9]+)",
+                    "series_number": 99,
+                    "episode_number": 99
                 }
             }
         },
@@ -232,10 +241,10 @@ class TestFeed(unittest.TestCase):
         sub1 = self.feed['テスト sub 1']
         sub2 = self.feed['テスト sub 2']
 
-        expected_subs_and_numbers = [(sub1, parse_version('2')),
-                                     (sub1, parse_version('3')),
-                                     (sub1, parse_version('1')),
-                                     (sub2, parse_version('2'))]
+        expected_subs_and_numbers = [(sub1, torrentrss.EpisodeNumber(None, 2)),
+                                     (sub1, torrentrss.EpisodeNumber(None, 3)),
+                                     (sub1, torrentrss.EpisodeNumber(None, 1)),
+                                     (sub2, torrentrss.EpisodeNumber(None, 2))]
         for index, triple in enumerate(matches):
             sub, entry, number = triple
             expected_sub, expected_number = expected_subs_and_numbers[index]
@@ -324,8 +333,6 @@ class UncloseableStringIO(io.StringIO):
     def close(self):
         pass
 
-io.StringIO()
-
 class TestConfig(unittest.TestCase):
     # no need to test if the config passes the schema validation,
     # as that validation is done every setUp call
@@ -355,7 +362,7 @@ class TestConfig(unittest.TestCase):
             self.config.exception_gui = 'notify-send'
 
     @patch('subprocess.Popen')
-    @patch.object(torrentrss, 'LOG_DIR', pathlib.PurePosixPath('/test'))
+    @patch('torrentrss.LOG_DIRECTORY', pathlib.PurePosixPath('/test'))
     def test_show_notify_send_exception_gui(self, popen):
         sys.last_type = Exception
         expected_text = ('An exception of type Exception occurred. '
@@ -405,11 +412,15 @@ class TestConfig(unittest.TestCase):
         feed_1 = self.config['テスト feed 1']
         feed_2 = self.config['テスト feed 2']
 
-        self.assertIsNone(feed_1['テスト sub 1'].number)
-        self.assertEqual(feed_1['テスト sub 2'].number, parse_version('1'))
-        self.assertEqual(feed_1['テスト sub 3'].number, parse_version('1'))
-        self.assertEqual(feed_2['テスト sub 1'].number, parse_version('S01E01'))
-        self.assertEqual(feed_2['テスト sub 2'].number, parse_version('S99E99'))
+        self.assertIsNone(feed_1['テスト sub 1'].number.episode)
+        self.assertEqual(feed_1['テスト sub 2'].number,
+                         torrentrss.EpisodeNumber(None, 1))
+        self.assertEqual(feed_1['テスト sub 3'].number,
+                         torrentrss.EpisodeNumber(None, 1))
+        self.assertEqual(feed_2['テスト sub 1'].number,
+                         torrentrss.EpisodeNumber(1, 1))
+        self.assertEqual(feed_2['テスト sub 2'].number,
+                         torrentrss.EpisodeNumber(99, 99))
 
         with patch.object(torrentrss.Command, '__call__') as start, \
              patch.object(feed_1, 'fetch',
@@ -423,14 +434,18 @@ class TestConfig(unittest.TestCase):
                     call(torrent_link(feed=1, sub=1, ep=1)),
                     call(magnet_link(feed=1, sub=2, ep=2)),
                     call(torrent_link(feed=2, sub=1, ep='S01E02'))]
-
         self.assertEqual(start.call_args_list, expected)
 
-        self.assertEqual(feed_1['テスト sub 1'].number, parse_version('3'))
-        self.assertEqual(feed_1['テスト sub 2'].number, parse_version('2'))
-        self.assertEqual(feed_1['テスト sub 3'].number, parse_version('1'))
-        self.assertEqual(feed_2['テスト sub 1'].number, parse_version('S01E02'))
-        self.assertEqual(feed_2['テスト sub 2'].number, parse_version('S99E99'))
+        self.assertEqual(feed_1['テスト sub 1'].number,
+                         torrentrss.EpisodeNumber(None, 3))
+        self.assertEqual(feed_1['テスト sub 2'].number,
+                         torrentrss.EpisodeNumber(None, 2))
+        self.assertEqual(feed_1['テスト sub 3'].number,
+                         torrentrss.EpisodeNumber(None, 1))
+        self.assertEqual(feed_2['テスト sub 1'].number,
+                         torrentrss.EpisodeNumber(1, 2))
+        self.assertEqual(feed_2['テスト sub 2'].number,
+                         torrentrss.EpisodeNumber(99, 99))
 
     def test_remove_old_log_files(self):
         self.config.log_file_limit = 2
@@ -450,7 +465,7 @@ class TestConfig(unittest.TestCase):
                 path.touch()
                 time.sleep(0.01)  # to guarantee differing st_ctime
 
-            with patch.object(torrentrss, 'LOG_DIR', directory):
+            with patch('torrentrss.LOG_DIRECTORY', directory):
                 self.assertEqual(self.config.log_paths_by_newest_first(),
                                  list(reversed(log_paths.values())))
                 self.config.remove_old_log_files()
@@ -473,16 +488,19 @@ class TestConfig(unittest.TestCase):
             # which when called returns the StringIO return_value,
             # whose getvalue() method finally returns the dumped json string
             json_dict = json.loads(file().getvalue())
-        return (json_dict['feeds']['テスト feed 1']
-                ['subscriptions']['テスト sub 1'])
+        return json_dict['feeds']['テスト feed 1']['subscriptions']['テスト sub 1']
 
     def test_save_new_episode_number(self):
-        sub = self._dump_and_load_number(parse_version('S01E01'))
-        self.assertEqual(sub['number'], 'S01E01')
+        num = torrentrss.EpisodeNumber(1, 1)
+        sub_dict = self._dump_and_load_number(num)
+        new_num = torrentrss.EpisodeNumber(sub_dict['series_number'],
+                                           sub_dict['episode_number'])
+        self.assertEqual(num, new_num)
 
     def test_save_new_episode_number_none_not_saved(self):
-        sub = self._dump_and_load_number(None)
-        self.assertNotIn('number', sub)
+        sub = self._dump_and_load_number(torrentrss.EpisodeNumber(None, None))
+        self.assertNotIn('series_number', sub)
+        self.assertNotIn('episode_number', sub)
 
 if __name__ == '__main__':
     unittest.main()

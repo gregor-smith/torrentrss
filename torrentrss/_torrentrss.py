@@ -5,12 +5,12 @@ import json
 import shutil
 import hashlib
 import logging
-import pathlib
-import datetime
 import tempfile
 import contextlib
 import subprocess
 import collections
+from pathlib import Path
+from datetime import datetime
 
 import click
 import easygui
@@ -24,16 +24,16 @@ VERSION = '0.5.1'
 
 WINDOWS = os.name == 'nt'
 
-CONFIG_DIRECTORY = pathlib.Path(click.get_app_dir(NAME))
+CONFIG_DIRECTORY = Path(click.get_app_dir(NAME))
 CONFIG_PATH = CONFIG_DIRECTORY.joinpath('config.json')
 CONFIG_SCHEMA_FILENAME = 'config_schema.json'
 
-LOG_DIR = CONFIG_DIRECTORY.joinpath('logs')
+LOG_DIRECTORY = CONFIG_DIRECTORY.joinpath('logs')
 DEFAULT_LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
 DEFAULT_LOG_FILE_LIMIT = 10
 
-TEMPORARY_DIRECTORY = pathlib.Path(tempfile.gettempdir())
+TEMPORARY_DIRECTORY = Path(tempfile.gettempdir())
 COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
 
@@ -66,7 +66,7 @@ class Config(collections.OrderedDict):
                 = self.json_dict.get('log_file_limit', DEFAULT_LOG_FILE_LIMIT)
 
             self.default_directory = (
-                pathlib.Path(self.json_dict['default_directory'])
+                Path(self.json_dict['default_directory'])
                 if 'default_directory' in self.json_dict else
                 TEMPORARY_DIRECTORY
             )
@@ -107,7 +107,7 @@ class Config(collections.OrderedDict):
     def show_notify_send_exception_gui():
         text = ('An exception of type {} occurred. <a href="{}">'
                 'Click to open the log directory.</a>'
-                .format(sys.last_type.__name__, LOG_DIR.as_uri()))
+                .format(sys.last_type.__name__, LOG_DIRECTORY.as_uri()))
         return subprocess.Popen(['notify-send', '--app-name',
                                  NAME, NAME, text])
 
@@ -142,23 +142,23 @@ class Config(collections.OrderedDict):
                     for sub, entry, number in list(feed.matching_subs()):
                         path_or_url = feed.download_entry(entry, sub.directory)
                         sub.command(path_or_url)
-                        if sub.has_lower_number_than(number):
+                        if number > sub.number:
                             sub.number = number
 
     @staticmethod
     def log_paths_by_newest_first():
         # in a separate method to remove_old_log_files for the sake of testing
-        return sorted((pathlib.Path(directory, file)
+        return sorted((Path(directory, file)
                        for directory, subdirectories, files in
-                       os.walk(str(LOG_DIR)) for file in files),
+                       os.walk(str(LOG_DIRECTORY)) for file in files),
                       key=lambda path: path.stat().st_ctime, reverse=True)
 
     def remove_old_log_files(self):
         for path in self.log_paths_by_newest_first()[self.log_file_limit:]:
             logging.debug("Removing old log file '%s'", path)
-            os.remove(str(path))
+            path.unlink()
 
-        for directory, subdirectories, files in os.walk(str(LOG_DIR)):
+        for directory, subdirectories, files in os.walk(str(LOG_DIRECTORY)):
             if not subdirectories and not files:
                 logging.debug("Removing empty log directory '%s'", directory)
                 os.rmdir(directory)
@@ -169,8 +169,11 @@ class Config(collections.OrderedDict):
         for feed_name, feed in self.items():
             json_subs = json_feeds[feed_name]['subscriptions']
             for sub_name, sub in feed.items():
-                if sub.number is not None:
-                    json_subs[sub_name]['number'] = str(sub.number)
+                sub_dict = json_subs[sub_name]
+                if sub.number.series is not None:
+                    sub_dict['series_number'] = sub.number.series
+                if sub.number.episode is not None:
+                    sub_dict['episode_number'] = sub.number.episode
         with self.path.open('w', encoding='utf-8') as file:
             json.dump(self.json_dict, file, indent='\t')
 
@@ -196,16 +199,13 @@ class Command:
             yield self.path_substitution_regex.sub(replacer, argument)
 
     def __call__(self, path_or_url):
-        if isinstance(path_or_url, pathlib.Path):
+        if isinstance(path_or_url, Path):
             path_or_url = str(path_or_url)
         if self.arguments is None:
-            logging.debug("Launching %r with default program", path_or_url)
+            logging.info("Launching %r with default program", path_or_url)
             # click.launch uses os.system on Windows, which shows a cmd.exe
             # window for a split second. Hence os.startfile is preferred.
-            if WINDOWS:
-                os.startfile(path_or_url)
-            else:
-                click.launch(path_or_url)
+            (os.startfile if WINDOWS else click.launch)(path_or_url)
         else:
             if WINDOWS:
                 startupinfo = subprocess.STARTUPINFO()
@@ -271,8 +271,8 @@ class Feed(collections.OrderedDict):
             for index, entry in enumerate(rss['entries']):
                 match = sub.regex.search(entry['title'])
                 if match:
-                    number = pkg_resources.parse_version(match.group(1))
-                    if sub.has_lower_number_than(number):
+                    number = EpisodeNumber.from_regex_match(match)
+                    if number > sub.number:
                         logging.info('MATCH: entry %s %r has greater number '
                                      'than sub %r: %s > %s',
                                      index, entry['title'], sub.name,
@@ -326,8 +326,8 @@ class Feed(collections.OrderedDict):
                  if self.hide_torrent_filename_enabled else rss_entry['title'])
         path = directory.joinpath(title).with_suffix('.torrent')
         if WINDOWS:
-            new_name = self.windows_forbidden_characters_regex.sub('_',
-                                                                   path.name)
+            new_name \
+                = self.windows_forbidden_characters_regex.sub('_', path.name)
             path = path.with_name(new_name)
 
         directory.mkdir(parents=True, exist_ok=True)
@@ -363,9 +363,26 @@ class Feed(collections.OrderedDict):
             raise FeedError('Feed {!r}: failed to download {}'
                             .format(self.name, url)) from error
 
+class EpisodeNumber(collections.namedtuple('EpisodeNumberBase',
+                                           ['series', 'episode'])):
+    def __gt__(self, other):
+        if self.episode is None:
+            return False
+        return other.episode is None \
+            or (self.series is not None and other.series is not None
+                and self.series > other.series) \
+            or self.episode > other.episode
+
+    @classmethod
+    def from_regex_match(cls, match):
+        groups = match.groupdict()
+        series = int(groups['series']) if 'series' in groups else None
+        return cls(series=series, episode=int(groups['episode']))
+
 class Subscription:
-    def __init__(self, feed, name, pattern, number=None,
-                 directory=None, command=None, enabled=True):
+    def __init__(self, feed, name, pattern, series_number=None,
+                 episode_number=None, directory=None,
+                 command=None, enabled=True):
         self._regex = self._directory = self._command = None
 
         self.feed = feed
@@ -377,10 +394,10 @@ class Subscription:
                 "Feed {!r} sub {!r} pattern '{}' not valid regex: {}"
                 .format(feed.name, self.name, pattern, ', '.join(error.args))
             ) from error
-        self.number = (None if number is None else
-                       pkg_resources.parse_version(number))
+        self.number = EpisodeNumber(series=series_number,
+                                    episode=episode_number)
         if directory is not None:
-            self.directory = pathlib.Path(directory)
+            self.directory = Path(directory)
         if command is not None:
             self.command = Command(command)
         self.enabled = enabled
@@ -394,7 +411,7 @@ class Subscription:
         return self._regex
     @regex.setter
     def regex(self, value):
-        if not value.groups:
+        if 'episode' not in value.groupindex:
             raise ConfigError(
                 "Feed {!r} sub {!r} pattern '{}' has no group for the "
                 'episode number'.format(self.feed.name, self.name, value)
@@ -423,13 +440,6 @@ class Subscription:
                     self.directory, self.command, self.enabled, self.number)
         )
 
-    def has_lower_number_than(self, other_number):
-        if other_number is None:
-            return False
-        if self.number is None:
-            return True
-        return self.number < other_number
-
 def configure_logging(path_format=DEFAULT_LOG_PATH_FORMAT,
                       message_format=LOG_MESSAGE_FORMAT,
                       file_level=None, console_level=None):
@@ -437,7 +447,7 @@ def configure_logging(path_format=DEFAULT_LOG_PATH_FORMAT,
     level = 0
 
     if file_level is not None:
-        path = LOG_DIR.joinpath(datetime.datetime.now().strftime(path_format))
+        path = LOG_DIRECTORY.joinpath(datetime.now().strftime(path_format))
         path.parent.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(str(path), encoding='utf-8')
         file_handler.setLevel(file_level)

@@ -26,5 +26,5 @@ setuptools.setup(
                  'Programming Language :: Python :: 3',
                  'Programming Language :: Python :: 3.5',
                  'Topic :: Utilities'],
-    test_suite='torrentrss.tests'
+    test_suite='tests'
 )
