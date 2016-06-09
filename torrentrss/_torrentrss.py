@@ -70,8 +70,10 @@ class Config(collections.OrderedDict):
                 if 'default_directory' in self.json_dict else
                 TEMPORARY_DIRECTORY
             )
-            self.default_command \
-                = Command(self.json_dict.get('default_command'))
+            self.default_command = Command(
+                self.json_dict.get('default_command'),
+                self.json_dict.get('default_command_shell_enabled', False)
+            )
 
             self.update((name, Feed(config=self, name=name, **feed_dict))
                         for name, feed_dict in self.json_dict['feeds'].items())
@@ -173,8 +175,9 @@ class Config(collections.OrderedDict):
 class Command:
     path_substitution_regex = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
 
-    def __init__(self, arguments=None):
+    def __init__(self, arguments=None, shell=False):
         self.arguments = arguments
+        self.shell = shell
 
     def __repr__(self):
         return '{}(arguments={})'.format(type(self).__name__, self.arguments)
@@ -207,7 +210,8 @@ class Command:
                 startupinfo = None
             arguments = list(self.arguments_with_substituted_path(path_or_url))
             logging.info('Launching subprocess with arguments %s', arguments)
-            subprocess.Popen(arguments, startupinfo=startupinfo)
+            subprocess.Popen(arguments, shell=self.shell,
+                             startupinfo=startupinfo)
 
 class Feed(collections.OrderedDict):
     windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
@@ -376,7 +380,7 @@ class EpisodeNumber(collections.namedtuple('EpisodeNumberBase',
 class Subscription:
     def __init__(self, feed, name, pattern, series_number=None,
                  episode_number=None, directory=None,
-                 command=None, enabled=True):
+                 command=None, command_shell_enabled=False, enabled=True):
         self._regex = self._directory = self._command = None
 
         self.feed = feed
@@ -393,7 +397,8 @@ class Subscription:
         if directory is not None:
             self.directory = Path(directory)
         if command is not None:
-            self.command = Command(command)
+            self.command = Command(arguments=command,
+                                   shell=command_shell_enabled)
         self.enabled = enabled
 
     @property

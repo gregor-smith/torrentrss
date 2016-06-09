@@ -16,12 +16,24 @@ import torrentrss
 # configure_logging() tests
 # main() tests
 
+@patch('torrentrss.WINDOWS', False)
 class TestCommand(unittest.TestCase):
-    def test_path_substitution(self):
-        command = torrentrss.Command(['command', '$PATH_OR_URL', '--option'])
-        path = '/home/test/テスト'
-        self.assertEqual(list(command.arguments_with_substituted_path(path)),
-                         ['command', path, '--option'])
+    def setUp(self):
+        self.path = '/home/test/テスト'
+
+    @patch('subprocess.Popen')
+    def test_command_with_arguments(self, popen):
+        command = torrentrss.Command(['command', '$PATH_OR_URL', '--option'],
+                                     shell=True)
+        command(self.path)
+        popen.assert_called_once_with(['command', self.path, '--option'],
+                                      shell=True, startupinfo=None)
+
+    @patch('click.launch')
+    def test_command_with_no_arguments(self, launch):
+        command = torrentrss.Command()
+        command(self.path)
+        launch.assert_called_once_with(self.path)
 
 class TestEpisodeNumber(unittest.TestCase):
     def test_comparison(self):
@@ -72,11 +84,8 @@ class TestSubscription(unittest.TestCase):
         self.assertTrue(sub.enabled)
 
     def test_properties(self):
-        command_arguments = ['test', 'command']
         directory = '/home/test/テスト'
-        sub = self._minimal_sub(directory=directory, command=command_arguments)
-        self.assertIsInstance(sub.command, torrentrss.Command)
-        self.assertEqual(sub.command.arguments, command_arguments)
+        sub = self._minimal_sub(directory=directory)
         self.assertIsInstance(sub.directory, pathlib.Path)
         self.assertEqual(sub.directory.as_posix(), directory)
 
@@ -346,7 +355,6 @@ class TestConfig(unittest.TestCase):
                          torrentrss.DEFAULT_LOG_FILE_LIMIT)
         self.assertIs(self.config.default_directory,
                       torrentrss.TEMPORARY_DIRECTORY)
-        self.assertIsNone(self.config.default_command.arguments)
         self.assertIn('テスト feed 1', self.config)
         self.assertIn('テスト feed 2', self.config)
         self.assertIn('disabled feed', self.config)
