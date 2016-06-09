@@ -132,14 +132,7 @@ class Config(collections.OrderedDict):
         with self.exceptions_shown_as_gui():
             for feed in self.values():
                 if feed.enabled and any(feed.enabled_subs()):
-                    # List is called here as otherwise sub.number would be
-                    # updated during the loop before being checked by the next
-                    # iteration of feed.matching_subs, so if a sub's number was
-                    # originally 2 and there were entries with 4 and 3, 4 would
-                    # become the sub's number, and because 4 > 3, 3 would be
-                    # skipped. Calling list first checks all entries against
-                    # the sub's original number, avoiding this problem.
-                    for sub, entry, number in list(feed.matching_subs()):
+                    for sub, entry, number in feed.matching_subs():
                         path_or_url = feed.download_entry(entry, sub.directory)
                         sub.command(path_or_url)
                         if number > sub.number:
@@ -268,11 +261,12 @@ class Feed(collections.OrderedDict):
         for sub in self.enabled_subs():
             logging.debug('Sub %r: checking entries against pattern: %s',
                           sub.name, sub.regex.pattern)
+            sub_number = sub.number
             for index, entry in enumerate(rss['entries']):
                 match = sub.regex.search(entry['title'])
                 if match:
                     number = EpisodeNumber.from_regex_match(match)
-                    if number > sub.number:
+                    if number > sub_number:
                         logging.info('MATCH: entry %s %r has greater number '
                                      'than sub %r: %s > %s',
                                      index, entry['title'], sub.name,
