@@ -22,7 +22,7 @@ import jsonschema
 import pkg_resources
 
 NAME = 'torrentrss'
-VERSION = '0.5.1'
+VERSION = '0.5.2'
 
 WINDOWS = os.name == 'nt'
 
