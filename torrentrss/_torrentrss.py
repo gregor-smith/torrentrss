@@ -83,7 +83,7 @@ class Config(collections.OrderedDict):
                         for name, feed_dict in self.json_dict['feeds'].items())
 
     def __repr__(self) -> str:
-        return '{}(path={!r})'.format(type(self).__name__, self.path)
+        return f'{type(self).__name__}(path={self.path!r})'
 
     @staticmethod
     def get_schema() -> str:
@@ -104,23 +104,21 @@ class Config(collections.OrderedDict):
             raise ConfigError("'exception_gui' is 'notify-send' but it "
                               'could not be found on the PATH')
         elif value != 'easygui' and value is not None:
-            raise ConfigError("'exception_gui' {!r} unknown. "
-                              "Must be 'notify-send' or 'easygui'"
-                              .format(value))
+            raise ConfigError(f"'exception_gui' {value!r} unknown. "
+                              "Must be 'notify-send' or 'easygui'")
         self._exception_gui = value
 
     @staticmethod
     def show_notify_send_exception_gui() -> subprocess.Popen:
-        text = ('An exception of type {} occurred. <a href="{}">'
-                'Click to open the log directory.</a>'
-                .format(sys.last_type.__name__, LOG_DIRECTORY.as_uri()))
+        text = (f'An exception of type {sys.last_type.__name__} occurred. '
+                f'<a href="{LOG_DIRECTORY.as_uri()}">Click to open '
+                'the log directory.</a>')
         return subprocess.Popen(['notify-send', '--app-name',
                                  NAME, NAME, text])
 
     @staticmethod
     def show_easygui_exception_gui() -> None:
-        text = ('An exception of type {} occurred.'
-                .format(sys.last_type.__name__))
+        text = f'An exception of type {sys.last_type.__name__} occurred.'
         return easygui.exceptionbox(msg=text, title=NAME)
 
     @contextlib.contextmanager
@@ -185,7 +183,7 @@ class Command:
         self.shell = shell
 
     def __repr__(self) -> str:
-        return '{}(arguments={})'.format(type(self).__name__, self.arguments)
+        return f'{type(self).__name__}(arguments={self.arguments})'
 
     def substituted_arguments(self, path_or_url: str) -> Iterator[str]:
         # The repl parameter here is a function which at first looks like it
@@ -199,6 +197,10 @@ class Command:
         for argument in self.arguments:
             yield self.path_substitution_regex.sub(replacer, argument)
 
+    @staticmethod
+    def startfile(path_or_url: str) -> None:
+        (os.startfile if WINDOWS else click.launch)(path_or_url)
+
     def __call__(self, path_or_url: str) -> Optional[subprocess.Popen]:
         if isinstance(path_or_url, Path):
             path_or_url = str(path_or_url)
@@ -206,7 +208,7 @@ class Command:
             logging.info("Launching %r with default program", path_or_url)
             # click.launch uses os.system on Windows, which shows a cmd.exe
             # window for a split second. Hence os.startfile is preferred.
-            (os.startfile if WINDOWS else click.launch)(path_or_url)
+            self.startfile(path_or_url)
         else:
             if WINDOWS:
                 startupinfo = subprocess.STARTUPINFO()
@@ -221,8 +223,8 @@ class Command:
 class Feed(collections.OrderedDict):
     windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
 
-    def __init__(self, config: Config, name: str, url: str,
-                 subscriptions: Json,
+    def __init__(self, config: Config, name: str,
+                 url: str, subscriptions: Json,
                  user_agent: Optional[str]=None, enabled: bool=True,
                  magnet_enabled: bool=True, torrent_url_enabled: bool=True,
                  torrent_file_enabled: bool=True,
@@ -230,9 +232,9 @@ class Feed(collections.OrderedDict):
         if not any([magnet_enabled, torrent_url_enabled,
                     torrent_file_enabled]):
             raise ConfigError(
-                "Feed {!r}: at least one of 'magnet_enabled', "
+                f"Feed {name!r}: at least one of 'magnet_enabled', "
                 "'torrent_url_enabled', or 'torrent_file_enabled' "
-                'must be true'.format(name)
+                'must be true'
             )
 
         self.config = config
@@ -249,17 +251,14 @@ class Feed(collections.OrderedDict):
                     for name, sub_dict in subscriptions.items())
 
     def __repr__(self) -> str:
-        return ('{}(name={!r}, url={!r}, subs={})'
-                .format(type(self).__name__, self.name,
-                        self.url, list(self.keys())))
+        return (f'{type(self).__name__}(name={self.name!r}, url={self.url!r}, '
+                f'subs={list(self.keys())})')
 
     def fetch(self) -> feedparser.FeedParserDict:
-        feedparser.parse()
         rss = feedparser.parse(self.url)
         if rss['bozo']:
-            raise FeedError('Feed {!r}: error parsing url {!r}'
-                            .format(self.name, self.url)) \
-                from rss['bozo_exception']
+            raise FeedError(f'Feed {self.name!r}: error parsing '
+                            f'url {self.url!r}') from rss['bozo_exception']
         logging.info('Feed %r: downloaded url %r', self.name, self.url)
         return rss
 
@@ -364,14 +363,14 @@ class Feed(collections.OrderedDict):
             else:
                 message = ("'magnet_enabled', 'torrent_url_enabled', and "
                            "'torrent_file_enabled' are all false.")
-            raise FeedError("Feed {!r}: {} Nothing to download."
-                            .format(self.name, message))
+            raise FeedError(f'Feed {self.name!r}: {message}'
+                            'Nothing to download.')
 
         try:
             return self.download_entry_torrent_file(url, rss_entry, directory)
         except Exception as error:
-            raise FeedError('Feed {!r}: failed to download {}'
-                            .format(self.name, url)) from error
+            raise FeedError(f'Feed {self.name!r}: failed to download {url}') \
+                from error
 
 class EpisodeNumber(NamedTuple('EpisodeNumberBase',
                                [('series', Optional[str]),
@@ -405,10 +404,9 @@ class Subscription:
         try:
             self.regex = re.compile(pattern)
         except re.error as error:
-            raise ConfigError(
-                "Feed {!r} sub {!r} pattern '{}' not valid regex: {}"
-                .format(feed.name, self.name, pattern, ', '.join(error.args))
-            ) from error
+            raise ConfigError(f'Feed {feed.name!r} sub {self.name!r} pattern '
+                              f'{pattern!r} not valid regex: '
+                              f'{", ".join(error.args)}') from error
         self.number = EpisodeNumber(series=series_number,
                                     episode=episode_number)
         if directory is not None:
@@ -428,10 +426,9 @@ class Subscription:
     @regex.setter
     def regex(self, value: Pattern):
         if 'episode' not in value.groupindex:
-            raise ConfigError(
-                "Feed {!r} sub {!r} pattern '{}' has no group for the "
-                'episode number'.format(self.feed.name, self.name, value)
-            )
+            raise ConfigError(f'Feed {self.feed.name!r} sub {self.name!r} '
+                              f'pattern {value!r} has no group for the '
+                              'episode number')
         self._regex = value
 
     @property
@@ -449,12 +446,10 @@ class Subscription:
         self._command = value
 
     def __repr__(self) -> str:
-        return (
-            '{}(name={!r}, pattern={!r}, directory={!r}, '
-            'command={!r}, enabled={}, number={})'
-            .format(type(self).__name__, self.name, self.regex.pattern,
-                    self.directory, self.command, self.enabled, self.number)
-        )
+        return (f'{type(self).__name__}(name={self.name!r}, '
+                f'pattern={self.regex.pattern!r}, '
+                f'directory={self.directory!r}, command={self.command!r}, '
+                f'enabled={self.enabled}, number={self.number})')
 
 def configure_logging(path_format: str=DEFAULT_LOG_PATH_FORMAT,
                       message_format: str=LOG_MESSAGE_FORMAT,
@@ -521,10 +516,8 @@ def main(log_path_format: str, file_logging_level: Optional[int],
         try:
             config = Config()
         except FileNotFoundError as error:
-            raise click.Abort(
-                "No config file found at '{}'. Try '--print-schema'."
-                .format(CONFIG_PATH)
-            ) from error
+            raise click.Abort(f'No config file found at {str(CONFIG_PATH)!r}. '
+                              "Try '--print-schema'.") from error
         config.check_feeds()
         config.save_new_episode_numbers()
         if config.remove_old_log_files_enabled:
