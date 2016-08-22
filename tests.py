@@ -1,14 +1,15 @@
 import io
+import os
 import re
 import sys
 import json
 import time
 import hashlib
-import pathlib
 import tempfile
 import unittest
 import collections
-from unittest.mock import patch, MagicMock, call
+from pathlib import Path, PurePosixPath
+from unittest.mock import patch, MagicMock, call, ANY
 
 import torrentrss
 
@@ -16,7 +17,6 @@ import torrentrss
 # configure_logging() tests
 # main() tests
 
-@patch('torrentrss.WINDOWS', False)
 class TestCommand(unittest.TestCase):
     def setUp(self):
         self.path = '/home/test/テスト'
@@ -27,13 +27,13 @@ class TestCommand(unittest.TestCase):
                                      shell=True)
         command(self.path)
         popen.assert_called_once_with(['command', self.path, '--option'],
-                                      shell=True, startupinfo=None)
+                                      shell=True, startupinfo=ANY)
 
-    @patch('click.launch')
-    def test_command_with_no_arguments(self, launch):
+    @patch.object(torrentrss.Command, 'startfile')
+    def test_command_with_no_arguments(self, startfile):
         command = torrentrss.Command()
         command(self.path)
-        launch.assert_called_once_with(self.path)
+        startfile.assert_called_once_with(self.path)
 
 class TestEpisodeNumber(unittest.TestCase):
     def test_comparison(self):
@@ -86,7 +86,7 @@ class TestSubscription(unittest.TestCase):
     def test_properties(self):
         directory = '/home/test/テスト'
         sub = self._minimal_sub(directory=directory)
-        self.assertIsInstance(sub.directory, pathlib.Path)
+        self.assertIsInstance(sub.directory, Path)
         self.assertEqual(sub.directory.as_posix(), directory)
 
     def test_invalid_regex_raises_configerror(self):
@@ -202,11 +202,11 @@ rss_feeds = {
                                entry_dict(feed=2, sub=2, ep='S99E98')]}
 }
 
-@patch.object(pathlib.Path, 'write_bytes')
-@patch.object(pathlib.Path, 'mkdir')
+@patch.object(Path, 'write_bytes')
+@patch.object(Path, 'mkdir')
 @patch('requests.get', return_value=MagicMock(content=b''))
 class TestFeed(unittest.TestCase):
-    directory = pathlib.Path('テスト')
+    directory = Path('テスト')
     entry_title = title(feed=1, sub=1, ep=1)
     entry_fallback_link = fallback_link(feed=1, sub=1, ep=1)
     entry_torrent_link = torrent_link(feed=1, sub=1, ep=1)
@@ -370,8 +370,8 @@ class TestConfig(unittest.TestCase):
             self.config.exception_gui = 'notify-send'
 
     @patch('subprocess.Popen')
-    @patch('torrentrss.LOG_DIRECTORY', pathlib.PurePosixPath('/test'))
-    def test_show_notify_send_exception_gui(self, popen):
+    @patch.object(Path, 'as_uri', return_value='file:///test')
+    def test_show_notify_send_exception_gui(self, as_uri, popen):
         sys.last_type = Exception
         expected_text = ('An exception of type Exception occurred. '
                          '<a href="file:///test">Click to open the '
@@ -466,17 +466,18 @@ class TestConfig(unittest.TestCase):
         log_paths = collections.OrderedDict()
 
         with tempfile.TemporaryDirectory() as directory:
-            directory = pathlib.Path(directory)
+            directory = Path(directory)
             for log in logs:
                 path = log_paths[log] = directory.joinpath(log)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.touch()
                 time.sleep(0.01)  # to guarantee differing st_ctime
 
-            with patch('torrentrss.LOG_DIRECTORY', directory):
+            with patch('os.walk', return_value=list(os.walk(str(directory)))):
                 self.assertEqual(self.config.log_paths_by_newest_first(),
                                  list(reversed(log_paths.values())))
                 self.config.remove_old_log_files()
+
 
             self.assertFalse(log_paths[logs[0]].exists())
             self.assertFalse(log_paths[logs[1]].exists())
