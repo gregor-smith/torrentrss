@@ -473,11 +473,10 @@ class TestConfig(unittest.TestCase):
                 path.touch()
                 time.sleep(0.01)  # to guarantee differing st_ctime
 
-            with patch('os.walk', return_value=list(os.walk(str(directory)))):
+            with patch('os.walk', return_value=list(os.walk(directory))):
                 self.assertEqual(self.config.log_paths_by_newest_first(),
                                  list(reversed(log_paths.values())))
                 self.config.remove_old_log_files()
-
 
             self.assertFalse(log_paths[logs[0]].exists())
             self.assertFalse(log_paths[logs[1]].exists())

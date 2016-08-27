@@ -40,6 +40,7 @@ COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
 
 Json = Dict[str, Union['Json', List['Json'], bool, int, str]]
+PathOrUrl = Union[Path, str]
 
 class TorrentRSSError(Exception):
     pass
@@ -147,7 +148,7 @@ class Config(collections.OrderedDict):
         # in a separate method to remove_old_log_files for the sake of testing
         return sorted((Path(directory, file)
                        for directory, subdirectories, files in
-                       os.walk(str(LOG_DIRECTORY)) for file in files),
+                       os.walk(LOG_DIRECTORY) for file in files),
                       key=lambda path: path.stat().st_ctime, reverse=True)
 
     def remove_old_log_files(self) -> None:
@@ -155,7 +156,7 @@ class Config(collections.OrderedDict):
             logging.debug("Removing old log file '%s'", path)
             path.unlink()
 
-        for directory, subdirectories, files in os.walk(str(LOG_DIRECTORY)):
+        for directory, subdirectories, files in os.walk(LOG_DIRECTORY):
             if not subdirectories and not files:
                 logging.debug("Removing empty log directory '%s'", directory)
                 os.rmdir(directory)
@@ -185,25 +186,23 @@ class Command:
     def __repr__(self) -> str:
         return f'{type(self).__name__}(arguments={self.arguments})'
 
-    def substituted_arguments(self, path_or_url: str) -> Iterator[str]:
+    def substituted_arguments(self, path_or_url: PathOrUrl) -> Iterator[str]:
         # The repl parameter here is a function which at first looks like it
         # could just be a string, but it actually needs to be a function or
         # else escapes in the string would be processed, leading to problems
         # when dealing with file paths, for example.
-        # See: https://docs.python.org/3.5/library/re.html#re.sub
+        # See: https://docs.python.org/3/library/re.html#re.sub
         #      https://stackoverflow.com/a/16291763/3289208
         def replacer(match: Match):
-            return str(path_or_url)
+            return os.fspath(path_or_url)
         for argument in self.arguments:
             yield self.path_substitution_regex.sub(replacer, argument)
 
     @staticmethod
-    def startfile(path_or_url: str) -> None:
-        (os.startfile if WINDOWS else click.launch)(path_or_url)
+    def startfile(path_or_url: PathOrUrl) -> None:
+        (os.startfile if WINDOWS else click.launch)(os.fspath(path_or_url))
 
-    def __call__(self, path_or_url: str) -> Optional[subprocess.Popen]:
-        if isinstance(path_or_url, Path):
-            path_or_url = str(path_or_url)
+    def __call__(self, path_or_url: PathOrUrl) -> Optional[subprocess.Popen]:
         if self.arguments is None:
             logging.info("Launching %r with default program", path_or_url)
             # click.launch uses os.system on Windows, which shows a cmd.exe
@@ -320,7 +319,7 @@ class Feed(collections.OrderedDict):
 
     def download_entry_torrent_file(self, url: str,
                                     rss_entry: feedparser.FeedParserDict,
-                                    directory: str) -> Path:
+                                    directory: Path) -> Path:
         headers = ({} if self.user_agent is None else
                    {'User-Agent': self.user_agent})
         logging.debug('Feed %r: sending GET request to %r with headers %s',
@@ -345,7 +344,7 @@ class Feed(collections.OrderedDict):
         return path
 
     def download_entry(self, rss_entry: feedparser.FeedParserDict,
-                       directory: str) -> Union[Path, str]:
+                       directory: Path) -> PathOrUrl:
         if self.magnet_enabled:
             with contextlib.suppress(KeyError):
                 return self.magnet_uri_for_entry(rss_entry)
@@ -461,7 +460,7 @@ def configure_logging(path_format: str=DEFAULT_LOG_PATH_FORMAT,
     if file_level is not None:
         path = LOG_DIRECTORY.joinpath(datetime.now().strftime(path_format))
         path.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(str(path), encoding='utf-8')
+        file_handler = logging.FileHandler(path, encoding='utf-8')
         file_handler.setLevel(file_level)
 
         handlers.append(file_handler)
