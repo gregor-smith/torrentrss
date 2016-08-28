@@ -15,7 +15,7 @@ I've always found the builtin RSS support to be lackluster in every torrent clie
 * Can download torrent files to a custom directory for each subscription (by default the operating system's temporary directory is used)
 
 ### Requirements
-Python 3.5 or newer, and the following packages:
+Python 3.6 or newer, and the following packages:
 
 * click
 * easygui
