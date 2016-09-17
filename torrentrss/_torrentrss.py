@@ -90,7 +90,7 @@ class Config(collections.OrderedDict):
     def get_schema() -> str:
         schema = pkg_resources.resource_string(__name__,
                                                CONFIG_SCHEMA_FILENAME)
-        return str(schema, encoding='utf-8').replace(os.linesep, '\n')
+        return str(schema, encoding='utf-8').replace('\r\n', '\n')
 
     @classmethod
     def get_schema_dict(cls) -> Json:
@@ -158,7 +158,7 @@ class Config(collections.OrderedDict):
 
         for directory, subdirectories, files in os.walk(LOG_DIRECTORY):
             if not subdirectories and not files:
-                logging.debug("Removing empty log directory '%s'", directory)
+                logging.debug('Removing empty log directory %r', directory)
                 os.rmdir(directory)
 
     def save_new_episode_numbers(self) -> None:
@@ -193,7 +193,7 @@ class Command:
         # when dealing with file paths, for example.
         # See: https://docs.python.org/3/library/re.html#re.sub
         #      https://stackoverflow.com/a/16291763/3289208
-        def replacer(match: Match):
+        def replacer(match: Match) -> str:
             return os.fspath(path_or_url)
         for argument in self.arguments:
             yield self.path_substitution_regex.sub(replacer, argument)
@@ -230,11 +230,9 @@ class Feed(collections.OrderedDict):
                  hide_torrent_filename_enabled: bool=True) -> None:
         if not any([magnet_enabled, torrent_url_enabled,
                     torrent_file_enabled]):
-            raise ConfigError(
-                f"Feed {name!r}: at least one of 'magnet_enabled', "
-                "'torrent_url_enabled', or 'torrent_file_enabled' "
-                'must be true'
-            )
+            raise ConfigError(f'Feed {name!r}: at least one of '
+                              "'magnet_enabled', 'torrent_url_enabled', or "
+                              "'torrent_file_enabled' must be true")
 
         self.config = config
         self.name = name
