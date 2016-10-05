@@ -12,7 +12,8 @@ import collections
 from pathlib import Path
 from datetime import datetime
 from typing.re import Pattern, Match
-from typing import Optional, Dict, List, Tuple, Union, Iterator, NamedTuple
+from typing import (Any, Dict, List, Tuple, Union,
+                    Iterator, Optional, ClassVar, NamedTuple)
 
 import click
 import easygui
@@ -21,25 +22,25 @@ import feedparser
 import jsonschema
 import pkg_resources
 
-NAME = 'torrentrss'
-VERSION = '0.5.2'
+NAME: str = 'torrentrss'
+VERSION: str = '0.5.2'
 
-WINDOWS = os.name == 'nt'
+WINDOWS: bool = os.name == 'nt'
 
-CONFIG_DIRECTORY = Path(click.get_app_dir(NAME))
-CONFIG_PATH = CONFIG_DIRECTORY.joinpath('config.json')
-CONFIG_SCHEMA_FILENAME = 'config_schema.json'
+CONFIG_DIRECTORY: Path = Path(click.get_app_dir(NAME))
+CONFIG_PATH: Path = CONFIG_DIRECTORY.joinpath('config.json')
+CONFIG_SCHEMA_FILENAME: str = 'config_schema.json'
 
-LOG_DIRECTORY = CONFIG_DIRECTORY.joinpath('logs')
-DEFAULT_LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
-LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
-DEFAULT_LOG_FILE_LIMIT = 10
+LOG_DIRECTORY: Path = CONFIG_DIRECTORY.joinpath('logs')
+DEFAULT_LOG_PATH_FORMAT: str = '%Y/%m/%Y-%m-%d.log'
+LOG_MESSAGE_FORMAT: str = '[%(asctime)s %(levelname)s] %(message)s'
+DEFAULT_LOG_FILE_LIMIT: int = 10
 
-TEMPORARY_DIRECTORY = Path(tempfile.gettempdir())
-COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
-TORRENT_MIMETYPE = 'application/x-bittorrent'
+TEMPORARY_DIRECTORY: Path = Path(tempfile.gettempdir())
+COMMAND_PATH_ARGUMENT: str = '$PATH_OR_URL'
+TORRENT_MIMETYPE: str = 'application/x-bittorrent'
 
-Json = Dict[str, Union['Json', List['Json'], bool, int, str]]
+Json = Dict[str, Any]
 PathOrUrl = Union[Path, str]
 
 class TorrentRSSError(Exception):
@@ -52,10 +53,18 @@ class FeedError(TorrentRSSError):
     pass
 
 class Config(collections.OrderedDict):
+    _exception_gui: str = None
+
+    path: Path
+    json_dict: Json
+    exception_gui: Optional[str]
+    remove_old_log_files_enabled: bool
+    log_file_limit: int
+    default_directory: Path
+    default_command: 'Command'
+
     def __init__(self, path: Path=CONFIG_PATH) -> None:
         super().__init__()
-        self._exception_gui = None
-
         self.path = path
         with path.open(encoding='utf-8') as file:
             self.json_dict \
@@ -88,8 +97,8 @@ class Config(collections.OrderedDict):
 
     @staticmethod
     def get_schema() -> str:
-        schema = pkg_resources.resource_string(__name__,
-                                               CONFIG_SCHEMA_FILENAME)
+        schema: bytes = pkg_resources.resource_string(__name__,
+                                                      CONFIG_SCHEMA_FILENAME)
         return str(schema, encoding='utf-8').replace('\r\n', '\n')
 
     @classmethod
@@ -111,15 +120,15 @@ class Config(collections.OrderedDict):
 
     @staticmethod
     def show_notify_send_exception_gui() -> subprocess.Popen:
-        text = (f'An exception of type {sys.last_type.__name__} occurred. '
-                f'<a href="{LOG_DIRECTORY.as_uri()}">Click to open '
-                'the log directory.</a>')
+        text: str = (f'An exception of type {sys.last_type.__name__} '
+                     f'occurred. <a href="{LOG_DIRECTORY.as_uri()}">'
+                     'Click to open the log directory.</a>')
         return subprocess.Popen(['notify-send', '--app-name',
                                  NAME, NAME, text])
 
     @staticmethod
     def show_easygui_exception_gui() -> None:
-        text = f'An exception of type {sys.last_type.__name__} occurred.'
+        text: str = f'An exception of type {sys.last_type.__name__} occurred.'
         return easygui.exceptionbox(msg=text, title=NAME)
 
     @contextlib.contextmanager
@@ -136,12 +145,14 @@ class Config(collections.OrderedDict):
     def check_feeds(self) -> None:
         with self.exceptions_shown_as_gui():
             for feed in self.values():
-                if feed.enabled and any(feed.enabled_subs()):
-                    for sub, entry, number in feed.matching_subs():
-                        path_or_url = feed.download_entry(entry, sub.directory)
-                        sub.command(path_or_url)
-                        if number > sub.number:
-                            sub.number = number
+                if not feed.enabled or not any(feed.enabled_subs()):
+                    continue
+                for sub, entry, number in feed.matching_subs():
+                    path_or_url: PathOrUrl = feed.download_entry(entry,
+                                                                 sub.directory)
+                    sub.command(path_or_url)
+                    if number > sub.number:
+                        sub.number = number
 
     @staticmethod
     def log_paths_by_newest_first() -> List[Path]:
@@ -163,11 +174,11 @@ class Config(collections.OrderedDict):
 
     def save_new_episode_numbers(self) -> None:
         logging.info("Writing episode numbers to '%s'", self.path)
-        json_feeds = self.json_dict['feeds']
+        json_feeds: Json = self.json_dict['feeds']
         for feed_name, feed in self.items():
-            json_subs = json_feeds[feed_name]['subscriptions']
+            json_subs: Json = json_feeds[feed_name]['subscriptions']
             for sub_name, sub in feed.items():
-                sub_dict = json_subs[sub_name]
+                sub_dict: Json = json_subs[sub_name]
                 if sub.number.series is not None:
                     sub_dict['series_number'] = sub.number.series
                 if sub.number.episode is not None:
@@ -176,9 +187,13 @@ class Config(collections.OrderedDict):
             json.dump(self.json_dict, file, indent='\t')
 
 class Command:
-    path_substitution_regex = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
+    path_substitution_regex: ClassVar[Pattern] \
+        = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
 
-    def __init__(self, arguments: List[str]=None,
+    arguments: Optional[List[str]]
+    shell: bool
+
+    def __init__(self, arguments: Optional[List[str]]=None,
                  shell: bool=False) -> None:
         self.arguments = arguments
         self.shell = shell
@@ -186,7 +201,7 @@ class Command:
     def __repr__(self) -> str:
         return f'{type(self).__name__}(arguments={self.arguments})'
 
-    def substituted_arguments(self, path_or_url: PathOrUrl) -> Iterator[str]:
+    def subbed_arguments(self, path_or_url: PathOrUrl) -> Iterator[str]:
         # The repl parameter here is a function which at first looks like it
         # could just be a string, but it actually needs to be a function or
         # else escapes in the string would be processed, leading to problems
@@ -209,18 +224,30 @@ class Command:
             # window for a split second. Hence os.startfile is preferred.
             self.startfile(path_or_url)
         else:
+            startupinfo: Optional[subprocess.STARTUPINFO]
             if WINDOWS:
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
             else:
                 startupinfo = None
-            arguments = list(self.substituted_arguments(path_or_url))
+            arguments: List[str] = list(self.subbed_arguments(path_or_url))
             logging.info('Launching subprocess with arguments %s', arguments)
             return subprocess.Popen(arguments, shell=self.shell,
                                     startupinfo=startupinfo)
 
 class Feed(collections.OrderedDict):
-    windows_forbidden_characters_regex = re.compile(r'[\\/:\*\?"<>\|]')
+    windows_forbidden_characters_regex: ClassVar[Pattern] \
+        = re.compile(r'[\\/:\*\?"<>\|]')
+
+    config: Config
+    name: str
+    url: str
+    user_agent: Optional[str]
+    enabled: bool
+    magnet_enabled: bool
+    torrent_url_enabled: bool
+    torrent_file_enabled: bool
+    hide_torrent_filename_enabled: bool
 
     def __init__(self, config: Config, name: str,
                  url: str, subscriptions: Json,
@@ -252,7 +279,7 @@ class Feed(collections.OrderedDict):
                 f'subs={list(self.keys())})')
 
     def fetch(self) -> feedparser.FeedParserDict:
-        rss = feedparser.parse(self.url)
+        rss: feedparser.FeedParserDict = feedparser.parse(self.url)
         if rss['bozo']:
             raise FeedError(f'Feed {self.name!r}: error parsing '
                             f'url {self.url!r}') from rss['bozo_exception']
@@ -266,15 +293,16 @@ class Feed(collections.OrderedDict):
 
     def matching_subs(self) -> Tuple['Subscription', feedparser.FeedParserDict,
                                      'EpisodeNumber']:
-        rss = self.fetch()
+        rss: feedparser.FeedParserDict = self.fetch()
         for sub in self.enabled_subs():
             logging.debug('Sub %r: checking entries against pattern: %s',
                           sub.name, sub.regex.pattern)
-            sub_number = sub.number
+            sub_number: EpisodeNumber = sub.number
             for index, entry in enumerate(rss['entries']):
-                match = sub.regex.search(entry['title'])
+                match: Match = sub.regex.search(entry['title'])
                 if match:
-                    number = EpisodeNumber.from_regex_match(match)
+                    number: EpisodeNumber \
+                        = EpisodeNumber.from_regex_match(match)
                     if number > sub_number:
                         logging.info('MATCH: entry %s %r has greater number '
                                      'than sub %r: %s > %s',
@@ -294,11 +322,11 @@ class Feed(collections.OrderedDict):
     def torrent_url_for_entry(rss_entry: feedparser.FeedParserDict) -> str:
         for link in rss_entry['links']:
             if link['type'] == TORRENT_MIMETYPE:
-                href = link['href']
+                href: str = link['href']
                 logging.debug('Entry %r: first link with mimetype %r is %r',
                               rss_entry['title'], TORRENT_MIMETYPE, href)
                 return href
-        link = rss_entry['link']
+        link: str = rss_entry['link']
         logging.info('Entry %r: no link with mimetype %r, returning first '
                      'link %r', rss_entry['title'], TORRENT_MIMETYPE, link)
         return link
@@ -306,7 +334,7 @@ class Feed(collections.OrderedDict):
     @staticmethod
     def magnet_uri_for_entry(rss_entry: feedparser.FeedParserDict) -> str:
         try:
-            magnet = rss_entry['torrent_magneturi']
+            magnet: str = rss_entry['torrent_magneturi']
             logging.debug('Entry %r: has magnet url %r',
                           rss_entry['title'], magnet)
             return magnet
@@ -318,20 +346,21 @@ class Feed(collections.OrderedDict):
     def download_entry_torrent_file(self, url: str,
                                     rss_entry: feedparser.FeedParserDict,
                                     directory: Path) -> Path:
-        headers = ({} if self.user_agent is None else
-                   {'User-Agent': self.user_agent})
+        headers: Dict[str, str] = ({} if self.user_agent is None else
+                                   {'User-Agent': self.user_agent})
         logging.debug('Feed %r: sending GET request to %r with headers %s',
                       self.name, url, headers)
-        response = requests.get(url, headers=headers)
+        response: requests.Response = requests.get(url, headers=headers)
         logging.debug("Feed %r: response status code is %s, 'ok' is %s",
                       self.name, response.status_code, response.ok)
         response.raise_for_status()
 
-        title = (hashlib.sha256(response.content).hexdigest()
-                 if self.hide_torrent_filename_enabled else rss_entry['title'])
-        path = directory.joinpath(title).with_suffix('.torrent')
+        title: str = (hashlib.sha256(response.content).hexdigest()
+                      if self.hide_torrent_filename_enabled else
+                      rss_entry['title'])
+        path: Path = directory.joinpath(title).with_suffix('.torrent')
         if WINDOWS:
-            new_name \
+            new_name: str \
                 = self.windows_forbidden_characters_regex.sub('_', path.name)
             path = path.with_name(new_name)
 
@@ -347,7 +376,7 @@ class Feed(collections.OrderedDict):
             with contextlib.suppress(KeyError):
                 return self.magnet_uri_for_entry(rss_entry)
 
-        url = self.torrent_url_for_entry(rss_entry)
+        url: str = self.torrent_url_for_entry(rss_entry)
         if self.torrent_url_enabled:
             logging.debug('Feed %r: returning torrent url %r', self.name, url)
             return url
@@ -370,8 +399,8 @@ class Feed(collections.OrderedDict):
                 from error
 
 class EpisodeNumber(NamedTuple('EpisodeNumberBase',
-                               [('series', Optional[str]),
-                                ('episode', Optional[str])])):
+                               [('series', Optional[int]),
+                                ('episode', Optional[int])])):
     def __gt__(self, other: 'EpisodeNumber') -> bool:
         if self.episode is None:
             return False
@@ -382,12 +411,25 @@ class EpisodeNumber(NamedTuple('EpisodeNumberBase',
 
     @classmethod
     def from_regex_match(cls, match: Match) -> 'EpisodeNumber':
-        groups = match.groupdict()
-        series = int(groups['series']) if 'series' in groups else None
+        groups: Dict[str, str] = match.groupdict()
+        series: Optional[int] = (int(groups['series'])
+                                 if 'series' in groups else None)
         return cls(series=series, episode=int(groups['episode']))
 
 class Subscription:
-    def __init__(self, feed: 'Feed', name: str, pattern: str,
+    _regex: Optional[Pattern]
+    _directory: Optional[Path]
+    _command: Optional[Command]
+
+    feed: Feed
+    name: str
+    regex: Optional[Pattern]
+    number: EpisodeNumber
+    directory: Path
+    command: Command
+    enabled: bool
+
+    def __init__(self, feed: Feed, name: str, pattern: str,
                  series_number: Optional[int]=None,
                  episode_number: Optional[int]=None,
                  directory: Optional[str]=None,
@@ -452,20 +494,22 @@ def configure_logging(path_format: str=DEFAULT_LOG_PATH_FORMAT,
                       message_format: str=LOG_MESSAGE_FORMAT,
                       file_level: Optional[int]=None,
                       console_level: Optional[int]=None) -> None:
-    handlers = []
-    level = 0
+    handlers: List[logging.Handler] = []
+    level: int = 0
 
     if file_level is not None:
-        path = LOG_DIRECTORY.joinpath(datetime.now().strftime(path_format))
+        time: str = datetime.now().strftime(path_format)
+        path: Path = LOG_DIRECTORY.joinpath(time)
         path.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(path, encoding='utf-8')
+        file_handler: logging.FileHandler \
+             = logging.FileHandler(path, encoding='utf-8')
         file_handler.setLevel(file_level)
 
         handlers.append(file_handler)
         level = file_level
 
     if console_level is not None:
-        console_handler = logging.StreamHandler()
+        console_handler: logging.StreamHandler = logging.StreamHandler()
         console_handler.setLevel(console_level)
 
         handlers.append(console_handler)
@@ -480,8 +524,9 @@ def configure_logging(path_format: str=DEFAULT_LOG_PATH_FORMAT,
     logging.getLogger('requests').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.WARNING)
 
-logging_level_choice = click.Choice(['DISABLE', 'DEBUG', 'INFO',
-                                     'WARNING', 'ERROR', 'CRITICAL'])
+logging_level_choice: click.Choice = click.Choice(['DISABLE', 'DEBUG', 'INFO',
+                                                   'WARNING', 'ERROR',
+                                                   'CRITICAL'])
 
 def logging_level_from_string(context: click.Context,
                               parameter: click.Parameter,
@@ -511,7 +556,7 @@ def main(log_path_format: str, file_logging_level: Optional[int],
 
     try:
         try:
-            config = Config()
+            config: Config = Config()
         except FileNotFoundError as error:
             raise click.Abort(f'No config file found at {str(CONFIG_PATH)!r}. '
                               "Try '--print-schema'.") from error
