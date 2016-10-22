@@ -142,11 +142,14 @@ class Config(collections.OrderedDict):
                 self.show_easygui_exception_gui()
             raise
 
+    def enabled_feeds(self) -> Iterator['Feed']:
+        for feed in self.values():
+            if feed.enabled:
+                yield feed
+
     def check_feeds(self) -> None:
         with self.exceptions_shown_as_gui():
-            for feed in self.values():
-                if not feed.enabled or not any(feed.enabled_subs()):
-                    continue
+            for feed in self.enabled_feeds():
                 for sub, entry, number in feed.matching_subs():
                     path_or_url: PathOrUrl = feed.download_entry(entry,
                                                                  sub.directory)
@@ -215,13 +218,13 @@ class Command:
 
     @staticmethod
     def startfile(path_or_url: PathOrUrl) -> None:
+        # click.launch uses os.system on Windows, which shows a cmd.exe
+        # window for a split second. Hence os.startfile is preferred.
         (os.startfile if WINDOWS else click.launch)(os.fspath(path_or_url))
 
     def __call__(self, path_or_url: PathOrUrl) -> Optional[subprocess.Popen]:
         if self.arguments is None:
             logging.info("Launching %r with default program", path_or_url)
-            # click.launch uses os.system on Windows, which shows a cmd.exe
-            # window for a split second. Hence os.startfile is preferred.
             self.startfile(path_or_url)
         else:
             startupinfo: Optional[subprocess.STARTUPINFO]
@@ -238,6 +241,8 @@ class Command:
 class Feed(collections.OrderedDict):
     windows_forbidden_characters_regex: ClassVar[Pattern] \
         = re.compile(r'[\\/:\*\?"<>\|]')
+
+    _enabled: bool
 
     config: Config
     name: str
@@ -261,6 +266,8 @@ class Feed(collections.OrderedDict):
                               "'magnet_enabled', 'torrent_url_enabled', or "
                               "'torrent_file_enabled' must be true")
 
+        self._enabled = False
+
         self.config = config
         self.name = name
         self.url = url
@@ -277,6 +284,13 @@ class Feed(collections.OrderedDict):
     def __repr__(self) -> str:
         return (f'{type(self).__name__}(name={self.name!r}, url={self.url!r}, '
                 f'subs={list(self.keys())})')
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled and any(self.enabled_subs())
+    @enabled.setter
+    def enabled(self, value: bool) -> None:
+        self._enabled = value
 
     def fetch(self) -> feedparser.FeedParserDict:
         rss: feedparser.FeedParserDict = feedparser.parse(self.url)
@@ -355,7 +369,7 @@ class Feed(collections.OrderedDict):
                       self.name, response.status_code, response.ok)
         response.raise_for_status()
 
-        title: str = (hashlib.sha256(response.content).hexdigest()
+        title: str = (hashlib.sha3_224(response_content).hexdigest()
                       if self.hide_torrent_filename_enabled else
                       rss_entry['title'])
         path: Path = directory.joinpath(title).with_suffix('.torrent')

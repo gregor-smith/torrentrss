@@ -8,7 +8,7 @@ import hashlib
 import tempfile
 import unittest
 import collections
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from unittest.mock import patch, MagicMock, call, ANY
 
 import torrentrss
@@ -302,8 +302,8 @@ class TestFeed(unittest.TestCase):
             .as_posix()
 
     def test_download_entry_torrent_file(self, *args):
-        sha256 = hashlib.sha256(b'').hexdigest()
-        desired_path = self._torrent_path(sha256)
+        sha = hashlib.sha3_224(b'').hexdigest()
+        desired_path = self._torrent_path(sha)
         path = self._run_download_entry_torrent_file()
         self.assertEqual(path.as_posix(), desired_path)
 
