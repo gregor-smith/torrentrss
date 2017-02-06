@@ -22,42 +22,45 @@ import feedparser
 import jsonschema
 import pkg_resources
 
-NAME: str = 'torrentrss'
-VERSION: str = '0.5.2'
+NAME = 'torrentrss'
+VERSION = '0.5.3'
 
-WINDOWS: bool = os.name == 'nt'
+WINDOWS = os.name == 'nt'
 
-CONFIG_DIRECTORY: Path = Path(click.get_app_dir(NAME))
+CONFIG_DIRECTORY = Path(click.get_app_dir(NAME))
 CONFIG_PATH: Path = CONFIG_DIRECTORY.joinpath('config.json')
-CONFIG_SCHEMA_FILENAME: str = 'config_schema.json'
+CONFIG_SCHEMA_FILENAME = 'config_schema.json'
 
 LOG_DIRECTORY: Path = CONFIG_DIRECTORY.joinpath('logs')
-DEFAULT_LOG_PATH_FORMAT: str = '%Y/%m/%Y-%m-%d.log'
-LOG_MESSAGE_FORMAT: str = '[%(asctime)s %(levelname)s] %(message)s'
-DEFAULT_LOG_FILE_LIMIT: int = 10
+DEFAULT_LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
+LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
+DEFAULT_LOG_FILE_LIMIT = 10
 
-TEMPORARY_DIRECTORY: Path = Path(tempfile.gettempdir())
-COMMAND_PATH_ARGUMENT: str = '$PATH_OR_URL'
-TORRENT_MIMETYPE: str = 'application/x-bittorrent'
+TEMPORARY_DIRECTORY = Path(tempfile.gettempdir())
+COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
+TORRENT_MIMETYPE = 'application/x-bittorrent'
 
 Json = Dict[str, Any]
 PathOrUrl = Union[Path, str]
 
+
 class TorrentRSSError(Exception):
     pass
+
 
 class ConfigError(TorrentRSSError):
     pass
 
+
 class FeedError(TorrentRSSError):
     pass
 
+
 class Config(collections.OrderedDict):
-    _exception_gui: str = None
+    _exception_gui: Optional[str] = None
 
     path: Path
     json_dict: Json
-    exception_gui: Optional[str]
     remove_old_log_files_enabled: bool
     log_file_limit: int
     default_directory: Path
@@ -66,18 +69,22 @@ class Config(collections.OrderedDict):
     def __init__(self, path: Path=CONFIG_PATH) -> None:
         super().__init__()
         self.path = path
+
         with path.open(encoding='utf-8') as file:
-            self.json_dict \
-                = json.load(file, object_pairs_hook=collections.OrderedDict)
+            self.json_dict = json.load(
+                file, object_pairs_hook=collections.OrderedDict
+            )
         jsonschema.validate(self.json_dict, self.get_schema_dict())
 
         self.exception_gui = self.json_dict.get('exception_gui')
 
         with self.exceptions_shown_as_gui():
-            self.remove_old_log_files_enabled \
-                = self.json_dict.get('remove_old_log_files_enabled', True)
-            self.log_file_limit \
-                = self.json_dict.get('log_file_limit', DEFAULT_LOG_FILE_LIMIT)
+            self.remove_old_log_files_enabled = self.json_dict.get(
+                'remove_old_log_files_enabled', True
+            )
+            self.log_file_limit = self.json_dict.get(
+                'log_file_limit', DEFAULT_LOG_FILE_LIMIT
+            )
 
             self.default_directory = (
                 Path(self.json_dict['default_directory'])
@@ -93,21 +100,23 @@ class Config(collections.OrderedDict):
                         for name, feed_dict in self.json_dict['feeds'].items())
 
     def __repr__(self) -> str:
-        return f'{type(self).__name__}(path={self.path!r})'
+        return f'{self.__class__.__name__}(path={self.path!r})'
 
     @staticmethod
     def get_schema() -> str:
         schema: bytes = pkg_resources.resource_string(__name__,
                                                       CONFIG_SCHEMA_FILENAME)
-        return str(schema, encoding='utf-8').replace('\r\n', '\n')
+        return str(schema, encoding='utf-8') \
+            .replace('\r\n', '\n')
 
     @classmethod
     def get_schema_dict(cls) -> Json:
         return json.loads(cls.get_schema())
 
     @property
-    def exception_gui(self) -> str:
+    def exception_gui(self) -> Optional[str]:
         return self._exception_gui
+
     @exception_gui.setter
     def exception_gui(self, value: Optional[str]) -> None:
         if value == 'notify-send' and shutil.which('notify-send') is None:
@@ -120,16 +129,16 @@ class Config(collections.OrderedDict):
 
     @staticmethod
     def show_notify_send_exception_gui() -> subprocess.Popen:
-        text: str = (f'An exception of type {sys.last_type.__name__} '
-                     f'occurred. <a href="{LOG_DIRECTORY.as_uri()}">'
-                     'Click to open the log directory.</a>')
+        text = (f'An exception of type {sys.last_type.__name__} occurred. '
+                f'<a href="{LOG_DIRECTORY.as_uri()}">Click to open the '
+                'log directory.</a>')
         return subprocess.Popen(['notify-send', '--app-name',
                                  NAME, NAME, text])
 
     @staticmethod
     def show_easygui_exception_gui() -> None:
-        text: str = f'An exception of type {sys.last_type.__name__} occurred.'
-        return easygui.exceptionbox(msg=text, title=NAME)
+        text = f'An exception of type {sys.last_type.__name__} occurred.'
+        easygui.exceptionbox(msg=text, title=NAME)
 
     @contextlib.contextmanager
     def exceptions_shown_as_gui(self) -> contextlib._GeneratorContextManager:
@@ -143,9 +152,7 @@ class Config(collections.OrderedDict):
             raise
 
     def enabled_feeds(self) -> Iterator['Feed']:
-        for feed in self.values():
-            if feed.enabled:
-                yield feed
+        return (feed for feed in self.values() if feed.enabled)
 
     def check_feeds(self) -> None:
         with self.exceptions_shown_as_gui():
@@ -189,6 +196,7 @@ class Config(collections.OrderedDict):
         with self.path.open('w', encoding='utf-8') as file:
             json.dump(self.json_dict, file, indent='\t')
 
+
 class Command:
     path_substitution_regex: ClassVar[Pattern] \
         = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
@@ -202,7 +210,7 @@ class Command:
         self.shell = shell
 
     def __repr__(self) -> str:
-        return f'{type(self).__name__}(arguments={self.arguments})'
+        return f'{self.__class__.__name__}(arguments={self.arguments})'
 
     def subbed_arguments(self, path_or_url: PathOrUrl) -> Iterator[str]:
         # The repl parameter here is a function which at first looks like it
@@ -220,7 +228,12 @@ class Command:
     def startfile(path_or_url: PathOrUrl) -> None:
         # click.launch uses os.system on Windows, which shows a cmd.exe
         # window for a split second. Hence os.startfile is preferred.
-        (os.startfile if WINDOWS else click.launch)(os.fspath(path_or_url))
+        path = (str(path_or_url) if isinstance(path_or_url, Path)
+                else path_or_url)
+        if WINDOWS:
+            os.startfile(path)
+        else:
+            click.launch(path)
 
     def __call__(self, path_or_url: PathOrUrl) -> Optional[subprocess.Popen]:
         if self.arguments is None:
@@ -238,6 +251,7 @@ class Command:
             return subprocess.Popen(arguments, shell=self.shell,
                                     startupinfo=startupinfo)
 
+
 class Feed(collections.OrderedDict):
     windows_forbidden_characters_regex: ClassVar[Pattern] \
         = re.compile(r'[\\/:\*\?"<>\|]')
@@ -248,7 +262,6 @@ class Feed(collections.OrderedDict):
     name: str
     url: str
     user_agent: Optional[str]
-    enabled: bool
     magnet_enabled: bool
     torrent_url_enabled: bool
     torrent_file_enabled: bool
@@ -282,12 +295,13 @@ class Feed(collections.OrderedDict):
                     for name, sub_dict in subscriptions.items())
 
     def __repr__(self) -> str:
-        return (f'{type(self).__name__}(name={self.name!r}, url={self.url!r}, '
-                f'subs={list(self.keys())})')
+        return (f'{self.__class__.__name__}(name={self.name!r}, '
+                f'url={self.url!r}, subs={list(self.keys())})')
 
     @property
     def enabled(self) -> bool:
         return self._enabled and any(self.enabled_subs())
+
     @enabled.setter
     def enabled(self, value: bool) -> None:
         self._enabled = value
@@ -301,12 +315,11 @@ class Feed(collections.OrderedDict):
         return rss
 
     def enabled_subs(self) -> Iterator['Subscription']:
-        for sub in self.values():
-            if sub.enabled:
-                yield sub
+        return (sub for sub in self.values() if sub.enabled)
 
-    def matching_subs(self) -> Tuple['Subscription', feedparser.FeedParserDict,
-                                     'EpisodeNumber']:
+    def matching_subs(self) -> Iterator[Tuple['Subscription',
+                                              feedparser.FeedParserDict,
+                                              'EpisodeNumber']]:
         rss: feedparser.FeedParserDict = self.fetch()
         for sub in self.enabled_subs():
             logging.debug('Sub %r: checking entries against pattern: %s',
@@ -315,8 +328,7 @@ class Feed(collections.OrderedDict):
             for index, entry in enumerate(rss['entries']):
                 match: Match = sub.regex.search(entry['title'])
                 if match:
-                    number: EpisodeNumber \
-                        = EpisodeNumber.from_regex_match(match)
+                    number = EpisodeNumber.from_regex_match(match)
                     if number > sub_number:
                         logging.info('MATCH: entry %s %r has greater number '
                                      'than sub %r: %s > %s',
@@ -340,7 +352,7 @@ class Feed(collections.OrderedDict):
                 logging.debug('Entry %r: first link with mimetype %r is %r',
                               rss_entry['title'], TORRENT_MIMETYPE, href)
                 return href
-        link: str = rss_entry['link']
+        link = rss_entry['link']
         logging.info('Entry %r: no link with mimetype %r, returning first '
                      'link %r', rss_entry['title'], TORRENT_MIMETYPE, link)
         return link
@@ -369,13 +381,15 @@ class Feed(collections.OrderedDict):
                       self.name, response.status_code, response.ok)
         response.raise_for_status()
 
-        title: str = (hashlib.sha3_224(response_content).hexdigest()
+        title: str = (hashlib.sha3_224(response.content).hexdigest()
                       if self.hide_torrent_filename_enabled else
                       rss_entry['title'])
-        path: Path = directory.joinpath(title).with_suffix('.torrent')
+        path: Path = directory.joinpath(title) \
+            .with_suffix('.torrent')
         if WINDOWS:
-            new_name: str \
-                = self.windows_forbidden_characters_regex.sub('_', path.name)
+            new_name: str = self.windows_forbidden_characters_regex.sub(
+                '_', path.name
+            )
             path = path.with_name(new_name)
 
         directory.mkdir(parents=True, exist_ok=True)
@@ -412,16 +426,17 @@ class Feed(collections.OrderedDict):
             raise FeedError(f'Feed {self.name!r}: failed to download {url}') \
                 from error
 
+
 class EpisodeNumber(NamedTuple('EpisodeNumberBase',
-                               [('series', Optional[int]),
-                                ('episode', Optional[int])])):
-    def __gt__(self, other: 'EpisodeNumber') -> bool:
+                               series=Optional[int], episode=Optional[int])):
+    def __gt__(self, other: Tuple[Optional[int], Optional[int]]) -> bool:
+        series, episode = other
         if self.episode is None:
             return False
-        return other.episode is None \
-            or (self.series is not None and other.series is not None
-                and self.series > other.series) \
-            or self.episode > other.episode
+        return episode is None \
+            or (self.series is not None and series is not None
+                and self.series > series) \
+            or self.episode > episode
 
     @classmethod
     def from_regex_match(cls, match: Match) -> 'EpisodeNumber':
@@ -430,6 +445,7 @@ class EpisodeNumber(NamedTuple('EpisodeNumberBase',
                                  if 'series' in groups else None)
         return cls(series=series, episode=int(groups['episode']))
 
+
 class Subscription:
     _regex: Optional[Pattern]
     _directory: Optional[Path]
@@ -437,10 +453,7 @@ class Subscription:
 
     feed: Feed
     name: str
-    regex: Optional[Pattern]
     number: EpisodeNumber
-    directory: Path
-    command: Command
     enabled: bool
 
     def __init__(self, feed: Feed, name: str, pattern: str,
@@ -476,6 +489,7 @@ class Subscription:
     @property
     def regex(self) -> Optional[Pattern]:
         return self._regex
+
     @regex.setter
     def regex(self, value: Pattern):
         if 'episode' not in value.groupindex:
@@ -487,6 +501,7 @@ class Subscription:
     @property
     def directory(self) -> Path:
         return self._directory or self.config.default_directory
+
     @directory.setter
     def directory(self, value: Path):
         self._directory = value
@@ -494,36 +509,37 @@ class Subscription:
     @property
     def command(self) -> Command:
         return self._command or self.config.default_command
+
     @command.setter
     def command(self, value: Command):
         self._command = value
 
     def __repr__(self) -> str:
-        return (f'{type(self).__name__}(name={self.name!r}, '
+        return (f'{self.__class__.__name__}(name={self.name!r}, '
                 f'pattern={self.regex.pattern!r}, '
                 f'directory={self.directory!r}, command={self.command!r}, '
                 f'enabled={self.enabled}, number={self.number})')
+
 
 def configure_logging(path_format: str=DEFAULT_LOG_PATH_FORMAT,
                       message_format: str=LOG_MESSAGE_FORMAT,
                       file_level: Optional[int]=None,
                       console_level: Optional[int]=None) -> None:
     handlers: List[logging.Handler] = []
-    level: int = 0
+    level = 0
 
     if file_level is not None:
         time: str = datetime.now().strftime(path_format)
         path: Path = LOG_DIRECTORY.joinpath(time)
         path.parent.mkdir(parents=True, exist_ok=True)
-        file_handler: logging.FileHandler \
-             = logging.FileHandler(path, encoding='utf-8')
+        file_handler = logging.FileHandler(path, encoding='utf-8')
         file_handler.setLevel(file_level)
 
         handlers.append(file_handler)
         level = file_level
 
     if console_level is not None:
-        console_handler: logging.StreamHandler = logging.StreamHandler()
+        console_handler = logging.StreamHandler()
         console_handler.setLevel(console_level)
 
         handlers.append(console_handler)
@@ -535,23 +551,28 @@ def configure_logging(path_format: str=DEFAULT_LOG_PATH_FORMAT,
                             handlers=handlers, level=level)
 
     # silence requests' logging in all but the worst cases
-    logging.getLogger('requests').setLevel(logging.WARNING)
-    logging.getLogger('urllib3').setLevel(logging.WARNING)
+    logging.getLogger('requests') \
+        .setLevel(logging.WARNING)
+    logging.getLogger('urllib3') \
+        .setLevel(logging.WARNING)
 
-logging_level_choice: click.Choice = click.Choice(['DISABLE', 'DEBUG', 'INFO',
-                                                   'WARNING', 'ERROR',
-                                                   'CRITICAL'])
+
+logging_level_choice = click.Choice(['DISABLE', 'DEBUG', 'INFO',
+                                     'WARNING', 'ERROR', 'CRITICAL'])
+
 
 def logging_level_from_string(context: click.Context,
                               parameter: click.Parameter,
                               level: str) -> Optional[int]:
     return getattr(logging, level, None)
 
+
 def print_schema(context: click.Context,
-                 parameter: click.Parameter, value: bool) -> None:
+                 parameter: click.Parameter, value: Any) -> None:
     if value:
         print(Config.get_schema())
         context.exit()
+
 
 @click.command()
 @click.option('--log-path-format', default=DEFAULT_LOG_PATH_FORMAT,
@@ -570,7 +591,7 @@ def main(log_path_format: str, file_logging_level: Optional[int],
 
     try:
         try:
-            config: Config = Config()
+            config = Config()
         except FileNotFoundError as error:
             raise click.Abort(f'No config file found at {str(CONFIG_PATH)!r}. '
                               "Try '--print-schema'.") from error
@@ -579,7 +600,7 @@ def main(log_path_format: str, file_logging_level: Optional[int],
         if config.remove_old_log_files_enabled:
             config.remove_old_log_files()
     except Exception as error:
-        logging.exception(type(error))
+        logging.exception(error.__class__.__name__)
         raise
     finally:
         logging.shutdown()

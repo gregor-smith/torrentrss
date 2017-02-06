@@ -17,6 +17,7 @@ import torrentrss
 # configure_logging() tests
 # main() tests
 
+
 class TestCommand(unittest.TestCase):
     def setUp(self):
         self.path = '/home/test/テスト'
@@ -34,6 +35,7 @@ class TestCommand(unittest.TestCase):
         command = torrentrss.Command()
         command(self.path)
         startfile.assert_called_once_with(self.path)
+
 
 class TestEpisodeNumber(unittest.TestCase):
     def test_comparison(self):
@@ -54,6 +56,7 @@ class TestEpisodeNumber(unittest.TestCase):
         match = re.search(r'S[0-9]{2}E(?P<episode>[0-9]{2})', 'S01E01')
         self.assertEqual(torrentrss.EpisodeNumber(None, 1),
                          torrentrss.EpisodeNumber.from_regex_match(match))
+
 
 class TestSubscription(unittest.TestCase):
     default_directory = torrentrss.TEMPORARY_DIRECTORY
@@ -96,6 +99,7 @@ class TestSubscription(unittest.TestCase):
     def test_regex_without_group_raises_configerror(self):
         with self.assertRaises(torrentrss.ConfigError):
             self._minimal_sub(pattern='no group in sight')
+
 
 config_string = '''{
     "feeds": {
@@ -146,29 +150,36 @@ config_string = '''{
     }
 }'''
 
+
 def config_from_string():
     with patch('io.open', return_value=io.StringIO(config_string)):
         return torrentrss.Config()
+
 
 def title(**kwargs):
     return ('テスト file feed {feed} sub {sub} ep {ep}'
             .format_map(kwargs))
 
+
 def fallback_link(**kwargs):
     return ('https://test.url/テスト/feed-{feed}-sub-{sub}-ep-{ep}-fallback'
             .format_map(kwargs))
+
 
 def torrent_link(**kwargs):
     return ('https://test.url/テスト/feed-{feed}-sub-{sub}-ep-{ep}-torrent'
             .format_map(kwargs))
 
+
 def magnet_link(**kwargs):
     return ('magnet:?テスト-feed-{feed}-sub-{sub}-ep-{ep}-magnet'
             .format_map(kwargs))
 
+
 def non_torrent_entry_link():
     return {'href': 'https://test.url/テスト/not-a-torrent-link',
             'type': 'text/html'}
+
 
 def entry_dict(fallback_is_torrent=False, magnet=True, **kwargs):
     entry = {'title': title(**kwargs)}
@@ -187,20 +198,22 @@ def entry_dict(fallback_is_torrent=False, magnet=True, **kwargs):
 
     return entry
 
+
 rss_feeds = {
     'テスト feed 1': {'entries': [{'title': 'mismatch filename'},
-                               entry_dict(feed=1, sub=1, ep=2),
-                               {'title': 'mismatch filename 2'},
-                               entry_dict(feed=1, sub=2, ep=2),
-                               entry_dict(feed=1, sub=2, ep=1),
-                               entry_dict(feed=1, sub=1, ep=3),
-                               entry_dict(feed=1, sub=1, ep=1, magnet=False,
-                                          fallback_is_torrent=True)]},
+                                 entry_dict(feed=1, sub=1, ep=2),
+                                 {'title': 'mismatch filename 2'},
+                                 entry_dict(feed=1, sub=2, ep=2),
+                                 entry_dict(feed=1, sub=2, ep=1),
+                                 entry_dict(feed=1, sub=1, ep=3),
+                                 entry_dict(feed=1, sub=1, ep=1, magnet=False,
+                                            fallback_is_torrent=True)]},
     'テスト feed 2': {'entries': [{'title': 'mismatch filename'},
-                               entry_dict(feed=2, sub=1, ep='S01E02',
-                                          magnet=False),
-                               entry_dict(feed=2, sub=2, ep='S99E98')]}
+                                 entry_dict(feed=2, sub=1, ep='S01E02',
+                                            magnet=False),
+                                 entry_dict(feed=2, sub=2, ep='S99E98')]}
 }
+
 
 @patch.object(Path, 'write_bytes')
 @patch.object(Path, 'mkdir')
@@ -338,9 +351,11 @@ class TestFeed(unittest.TestCase):
         with self.assertRaises(torrentrss.FeedError):
             self._run_download_entry()
 
+
 class UncloseableStringIO(io.StringIO):
     def close(self):
         pass
+
 
 class TestConfig(unittest.TestCase):
     # no need to test if the config passes the schema validation,
@@ -394,7 +409,7 @@ class TestConfig(unittest.TestCase):
         # bypassing the property to avoid error when notify-send not on path
         self.config._exception_gui = gui
         with self.assertRaises(Exception), \
-             self.config.exceptions_shown_as_gui():
+                self.config.exceptions_shown_as_gui():
             raise Exception
         return args
 
@@ -431,10 +446,10 @@ class TestConfig(unittest.TestCase):
                          torrentrss.EpisodeNumber(99, 99))
 
         with patch.object(torrentrss.Command, '__call__') as start, \
-             patch.object(feed_1, 'fetch',
-                          return_value=rss_feeds[feed_1.name]), \
-             patch.object(feed_2, 'fetch',
-                          return_value=rss_feeds[feed_2.name]):
+                patch.object(feed_1, 'fetch',
+                             return_value=rss_feeds[feed_1.name]), \
+                patch.object(feed_2, 'fetch',
+                             return_value=rss_feeds[feed_2.name]):
             self.config.check_feeds()
 
         expected = [call(magnet_link(feed=1, sub=1, ep=2)),
@@ -509,6 +524,7 @@ class TestConfig(unittest.TestCase):
         sub = self._dump_and_load_number(torrentrss.EpisodeNumber(None, None))
         self.assertNotIn('series_number', sub)
         self.assertNotIn('episode_number', sub)
+
 
 if __name__ == '__main__':
     unittest.main()

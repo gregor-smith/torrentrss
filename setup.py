@@ -5,7 +5,7 @@ with open('README.md') as file:
 
 setuptools.setup(
     name='torrentrss',
-    version='0.5.2',
+    version='0.5.3',
     license='MIT',
     description=('An RSS torrent fetcher. Matches entries with regexp, '
                  'keeps track of episode numbers, allows custom commands, '
