@@ -1,21 +1,13 @@
 import io
-import os
 import re
 import sys
 import json
-import time
 import hashlib
-import tempfile
 import unittest
-import collections
 from pathlib import Path
 from unittest.mock import patch, MagicMock, call, ANY
 
 import torrentrss
-
-# TODO
-# configure_logging() tests
-# main() tests
 
 
 class TestCommand(unittest.TestCase):
@@ -365,9 +357,6 @@ class TestConfig(unittest.TestCase):
 
     def test_properties(self):
         self.assertIsNone(self.config.exception_gui)
-        self.assertTrue(self.config.remove_old_log_files_enabled)
-        self.assertEqual(self.config.log_file_limit,
-                         torrentrss.DEFAULT_LOG_FILE_LIMIT)
         self.assertIs(self.config.default_directory,
                       torrentrss.TEMPORARY_DIRECTORY)
         self.assertIn('テスト feed 1', self.config)
@@ -388,9 +377,7 @@ class TestConfig(unittest.TestCase):
     @patch.object(Path, 'as_uri', return_value='file:///test')
     def test_show_notify_send_exception_gui(self, as_uri, popen):
         sys.last_type = Exception
-        expected_text = ('An exception of type Exception occurred. '
-                         '<a href="file:///test">Click to open the '
-                         'log directory.</a>')
+        expected_text = 'An exception of type Exception occurred.'
         expected_args = ['notify-send', '--app-name', 'torrentrss',
                          'torrentrss', expected_text]
         self.config.show_notify_send_exception_gui()
@@ -469,36 +456,6 @@ class TestConfig(unittest.TestCase):
                          torrentrss.EpisodeNumber(1, 2))
         self.assertEqual(feed_2['テスト sub 2'].number,
                          torrentrss.EpisodeNumber(99, 99))
-
-    def test_remove_old_log_files(self):
-        self.config.log_file_limit = 2
-
-        logs = ['dir_1/file_1.log',
-                'dir_2/subdir_1/file_1.log',
-                'dir_2/file_1.log',
-                'dir_2/file_2.log',
-                'dir_3/file_1.log']
-        log_paths = collections.OrderedDict()
-
-        with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
-            for log in logs:
-                path = log_paths[log] = directory.joinpath(log)
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.touch()
-                time.sleep(0.01)  # to guarantee differing st_ctime
-
-            with patch('os.walk', return_value=list(os.walk(directory))):
-                self.assertEqual(self.config.log_paths_by_newest_first(),
-                                 list(reversed(log_paths.values())))
-                self.config.remove_old_log_files()
-
-            self.assertFalse(log_paths[logs[0]].exists())
-            self.assertFalse(log_paths[logs[1]].exists())
-            self.assertFalse(log_paths[logs[1]].parent.exists())
-            self.assertFalse(log_paths[logs[2]].exists())
-            self.assertTrue(log_paths[logs[3]].exists())
-            self.assertTrue(log_paths[logs[4]].exists())
 
     def _dump_and_load_number(self, number):
         self.config['テスト feed 1']['テスト sub 1'].number = number

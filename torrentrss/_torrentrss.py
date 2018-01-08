@@ -10,7 +10,6 @@ import contextlib
 import subprocess
 import collections
 from pathlib import Path
-from datetime import datetime
 from typing.re import Pattern, Match
 from typing import (Any, Dict, List, Tuple, Union,
                     Iterator, Optional, ClassVar, NamedTuple)
@@ -31,10 +30,7 @@ CONFIG_DIRECTORY = Path(click.get_app_dir(NAME))
 CONFIG_PATH: Path = CONFIG_DIRECTORY.joinpath('config.json')
 CONFIG_SCHEMA_FILENAME = 'config_schema.json'
 
-LOG_DIRECTORY: Path = CONFIG_DIRECTORY.joinpath('logs')
-DEFAULT_LOG_PATH_FORMAT = '%Y/%m/%Y-%m-%d.log'
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
-DEFAULT_LOG_FILE_LIMIT = 10
 
 TEMPORARY_DIRECTORY = Path(tempfile.gettempdir())
 COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
@@ -62,8 +58,6 @@ class Config(collections.OrderedDict):
 
     path: Path
     json_dict: Json
-    remove_old_log_files_enabled: bool
-    log_file_limit: int
     default_directory: Path
     default_command: 'Command'
 
@@ -80,13 +74,6 @@ class Config(collections.OrderedDict):
         self.exception_gui = self.json_dict.get('exception_gui')
 
         with self.exceptions_shown_as_gui():
-            self.remove_old_log_files_enabled = self.json_dict.get(
-                'remove_old_log_files_enabled', True
-            )
-            self.log_file_limit = self.json_dict.get(
-                'log_file_limit', DEFAULT_LOG_FILE_LIMIT
-            )
-
             self.default_directory = (
                 Path(self.json_dict['default_directory'])
                 if 'default_directory' in self.json_dict else
@@ -130,9 +117,7 @@ class Config(collections.OrderedDict):
 
     @staticmethod
     def show_notify_send_exception_gui() -> subprocess.Popen:
-        text = (f'An exception of type {sys.last_type.__name__} occurred. '
-                f'<a href="{LOG_DIRECTORY.as_uri()}">Click to open the '
-                'log directory.</a>')
+        text = f'An exception of type {sys.last_type.__name__} occurred.'
         return subprocess.Popen(['notify-send', '--app-name',
                                  NAME, NAME, text])
 
@@ -164,24 +149,6 @@ class Config(collections.OrderedDict):
                     sub.command(path_or_url)
                     if number > sub.number:
                         sub.number = number
-
-    @staticmethod
-    def log_paths_by_newest_first() -> List[Path]:
-        # in a separate method to remove_old_log_files for the sake of testing
-        return sorted((Path(directory, file)
-                       for directory, subdirectories, files in
-                       os.walk(LOG_DIRECTORY) for file in files),
-                      key=lambda path: path.stat().st_ctime, reverse=True)
-
-    def remove_old_log_files(self) -> None:
-        for path in self.log_paths_by_newest_first()[self.log_file_limit:]:
-            logging.debug("Removing old log file '%s'", path)
-            path.unlink()
-
-        for directory, subdirectories, files in os.walk(LOG_DIRECTORY):
-            if not subdirectories and not files:
-                logging.debug('Removing empty log directory %r', directory)
-                os.rmdir(directory)
 
     def save_new_episode_numbers(self) -> None:
         logging.info("Writing episode numbers to '%s'", self.path)
@@ -236,11 +203,7 @@ class Command:
         click.launch(path)
 
     def __call__(self, path_or_url: PathOrUrl) -> Optional[subprocess.Popen]:
-        if self.arguments is None:
-            logging.info("Launching %r with default program", path_or_url)
-            self.startfile(path_or_url)
-        else:
-            startupinfo: Optional[subprocess.STARTUPINFO]
+        if self.arguments is not None:
             if WINDOWS:
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
@@ -250,6 +213,8 @@ class Command:
             logging.info('Launching subprocess with arguments %s', arguments)
             return subprocess.Popen(arguments, shell=self.shell,
                                     startupinfo=startupinfo)
+        logging.info("Launching %r with default program", path_or_url)
+        self.startfile(path_or_url)
 
 
 class Feed(collections.OrderedDict):
@@ -521,9 +486,8 @@ class Subscription:
                 f'enabled={self.enabled}, number={self.number})')
 
 
-def configure_logging(format: str=LOG_MESSAGE_FORMAT,
-                      level: str=None) -> None:
-    logging.basicConfig(format=format, level=level)
+def configure_logging(level: Optional[str]=None) -> None:
+    logging.basicConfig(format=LOG_MESSAGE_FORMAT, level=level)
 
     # silence requests' logging in all but the worst cases
     logging.getLogger('requests') \
@@ -559,8 +523,6 @@ def main(logging_level: str) -> None:
             ) from error
         config.check_feeds()
         config.save_new_episode_numbers()
-        if config.remove_old_log_files_enabled:
-            config.remove_old_log_files()
     except Exception as error:
         logging.exception(error.__class__.__name__)
         raise
