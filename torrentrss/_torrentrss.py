@@ -40,6 +40,7 @@ TEMPORARY_DIRECTORY = Path(tempfile.gettempdir())
 COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
 
+
 Json = Dict[str, Any]
 PathOrUrl = Union[Path, str]
 
@@ -231,9 +232,8 @@ class Command:
         path = (str(path_or_url) if isinstance(path_or_url, Path)
                 else path_or_url)
         if WINDOWS:
-            os.startfile(path)
-        else:
-            click.launch(path)
+            return os.startfile(path)
+        click.launch(path)
 
     def __call__(self, path_or_url: PathOrUrl) -> Optional[subprocess.Popen]:
         if self.arguments is None:
@@ -521,34 +521,9 @@ class Subscription:
                 f'enabled={self.enabled}, number={self.number})')
 
 
-def configure_logging(path_format: str=DEFAULT_LOG_PATH_FORMAT,
-                      message_format: str=LOG_MESSAGE_FORMAT,
-                      file_level: Optional[int]=None,
-                      console_level: Optional[int]=None) -> None:
-    handlers: List[logging.Handler] = []
-    level = 0
-
-    if file_level is not None:
-        time: str = datetime.now().strftime(path_format)
-        path: Path = LOG_DIRECTORY.joinpath(time)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(path, encoding='utf-8')
-        file_handler.setLevel(file_level)
-
-        handlers.append(file_handler)
-        level = file_level
-
-    if console_level is not None:
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(console_level)
-
-        handlers.append(console_handler)
-        if console_level < level:
-            level = console_level
-
-    if handlers:
-        logging.basicConfig(format=message_format,
-                            handlers=handlers, level=level)
+def configure_logging(format: str=LOG_MESSAGE_FORMAT,
+                      level: str=None) -> None:
+    logging.basicConfig(format=format, level=level)
 
     # silence requests' logging in all but the worst cases
     logging.getLogger('requests') \
@@ -557,44 +532,31 @@ def configure_logging(path_format: str=DEFAULT_LOG_PATH_FORMAT,
         .setLevel(logging.WARNING)
 
 
-logging_level_choice = click.Choice(['DISABLE', 'DEBUG', 'INFO',
-                                     'WARNING', 'ERROR', 'CRITICAL'])
-
-
-def logging_level_from_string(context: click.Context,
-                              parameter: click.Parameter,
-                              level: str) -> Optional[int]:
-    return getattr(logging, level, None)
-
-
-def print_schema(context: click.Context,
-                 parameter: click.Parameter, value: Any) -> None:
+def print_schema(context: click.Context, parameter: click.Parameter,
+                 value: Any) -> None:
     if value:
         print(Config.get_schema())
         context.exit()
 
 
 @click.command()
-@click.option('--log-path-format', default=DEFAULT_LOG_PATH_FORMAT,
-              show_default=True)
-@click.option('--file-logging-level', default='DEBUG', show_default=True,
-              type=logging_level_choice, callback=logging_level_from_string)
-@click.option('--console-logging-level', default='INFO', show_default=True,
-              type=logging_level_choice, callback=logging_level_from_string)
-@click.option('--print-schema', is_flag=True, is_eager=True,
+@click.option('--logging-level', default='DEBUG', show_default=True,
+              type=click.Choice(['DISABLE', 'DEBUG', 'INFO',
+                                 'WARNING', 'ERROR', 'CRITICAL']))
+@click.option('--print-config-schema', is_flag=True, is_eager=True,
               expose_value=False, callback=print_schema)
 @click.version_option(VERSION)
-def main(log_path_format: str, file_logging_level: Optional[int],
-         console_logging_level: Optional[int]) -> None:
-    configure_logging(log_path_format, file_level=file_logging_level,
-                      console_level=console_logging_level)
+def main(logging_level: str) -> None:
+    configure_logging(level=logging_level)
 
     try:
         try:
             config = Config()
         except FileNotFoundError as error:
-            raise click.Abort(f'No config file found at {str(CONFIG_PATH)!r}. '
-                              "Try '--print-schema'.") from error
+            raise click.Abort(
+                f'No config file found at {str(CONFIG_PATH)!r}. '
+                "See '--print-config-schema' for reference."
+            ) from error
         config.check_feeds()
         config.save_new_episode_numbers()
         if config.remove_old_log_files_enabled:
