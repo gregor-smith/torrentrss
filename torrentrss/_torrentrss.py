@@ -8,30 +8,26 @@ import logging
 import tempfile
 import contextlib
 import subprocess
-import collections
 from pathlib import Path
+from collections import OrderedDict
 from typing.re import Pattern, Match
 from typing import (Any, Dict, List, Tuple, Union,
-                    Iterator, Optional, ClassVar, NamedTuple)
+                    Generator, Iterator, Optional, ClassVar)
 
 import click
-import easygui
 import requests
 import feedparser
+from feedparser import FeedParserDict
 import jsonschema
 import pkg_resources
 
 NAME = 'torrentrss'
 VERSION = '0.5.3'
-
 WINDOWS = os.name == 'nt'
-
 CONFIG_DIRECTORY = Path(click.get_app_dir(NAME))
-CONFIG_PATH: Path = CONFIG_DIRECTORY.joinpath('config.json')
+CONFIG_PATH = Path(CONFIG_DIRECTORY, 'config.json')
 CONFIG_SCHEMA_FILENAME = 'config_schema.json'
-
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
-
 TEMPORARY_DIRECTORY = Path(tempfile.gettempdir())
 COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
@@ -53,122 +49,89 @@ class FeedError(TorrentRSSError):
     pass
 
 
-class Config(collections.OrderedDict):
-    _exception_gui: Optional[str] = None
+def get_schema() -> str:
+    return pkg_resources.resource_string(__name__, CONFIG_SCHEMA_FILENAME) \
+        .decode('utf-8')
 
-    path: Path
-    json_dict: Json
+
+def get_schema_dict() -> Json:
+    return json.loads(get_schema())
+
+
+@contextlib.contextmanager
+def exceptions_shown_as_gui() -> Generator:
+    try:
+        yield
+    except Exception:
+        text = f'An exception of type {sys.last_type.__name__} occurred.'
+        if shutil.which('notify-send') is not None:
+            subprocess.Popen(['notify-send', '--app-name', NAME, NAME, text])
+            return
+        with contextlib.suppress(ImportError):
+            from easygui import exceptionbox
+            exceptionbox(msg=text, title=NAME)
+            return
+        raise
+
+
+def startfile(path_or_url: PathOrUrl) -> None:
+    # click.launch uses os.system on Windows, which shows a cmd.exe
+    # window for a split second. Hence os.startfile is preferred.
+    if WINDOWS:
+        return os.startfile(path_or_url)
+    click.launch(os.fspath(path_or_url))
+
+
+class TorrentRSS:
+    _json: Json
+
+    feeds: Dict[str, 'Feed']
+    config_path: Path
     default_directory: Path
     default_command: 'Command'
 
-    def __init__(self, path: Path=CONFIG_PATH) -> None:
-        super().__init__()
-        self.path = path
+    def __init__(self) -> None:
+        with open(CONFIG_PATH, encoding='utf-8') as file:
+            self._json = json.load(file, object_pairs_hook=OrderedDict)
+        jsonschema.validate(self._json, get_schema_dict())
 
-        with path.open(encoding='utf-8') as file:
-            self.json_dict = json.load(
-                file, object_pairs_hook=collections.OrderedDict
-            )
-        jsonschema.validate(self.json_dict, self.get_schema_dict())
-
-        self.exception_gui = self.json_dict.get('exception_gui')
-
-        with self.exceptions_shown_as_gui():
-            self.default_directory = (
-                Path(self.json_dict['default_directory'])
-                if 'default_directory' in self.json_dict else
-                TEMPORARY_DIRECTORY
-            )
-            self.default_command = Command(
-                self.json_dict.get('default_command'),
-                self.json_dict.get('default_command_shell_enabled', False)
-            )
-
-            self.update((name, Feed(config=self, name=name, **feed_dict))
-                        for name, feed_dict in self.json_dict['feeds'].items())
-
-    def __repr__(self) -> str:
-        return f'{self.__class__.__name__}(path={self.path!r})'
-
-    @staticmethod
-    def get_schema() -> str:
-        schema: bytes = pkg_resources.resource_string(__name__,
-                                                      CONFIG_SCHEMA_FILENAME)
-        return str(schema, encoding='utf-8') \
-            .replace('\r\n', '\n')
-
-    @classmethod
-    def get_schema_dict(cls) -> Json:
-        return json.loads(cls.get_schema())
-
-    @property
-    def exception_gui(self) -> Optional[str]:
-        return self._exception_gui
-
-    @exception_gui.setter
-    def exception_gui(self, value: Optional[str]) -> None:
-        if value == 'notify-send' and shutil.which('notify-send') is None:
-            raise ConfigError("'exception_gui' is 'notify-send' but it "
-                              'could not be found on the PATH')
-        elif value != 'easygui' and value is not None:
-            raise ConfigError(f"'exception_gui' {value!r} unknown. "
-                              "Must be 'notify-send' or 'easygui'")
-        self._exception_gui = value
-
-    @staticmethod
-    def show_notify_send_exception_gui() -> subprocess.Popen:
-        text = f'An exception of type {sys.last_type.__name__} occurred.'
-        return subprocess.Popen(['notify-send', '--app-name',
-                                 NAME, NAME, text])
-
-    @staticmethod
-    def show_easygui_exception_gui() -> None:
-        text = f'An exception of type {sys.last_type.__name__} occurred.'
-        easygui.exceptionbox(msg=text, title=NAME)
-
-    @contextlib.contextmanager
-    def exceptions_shown_as_gui(self) -> contextlib._GeneratorContextManager:
-        try:
-            yield
-        except Exception:
-            if self.exception_gui == 'notify-send':
-                self.show_notify_send_exception_gui()
-            elif self.exception_gui == 'easygui':
-                self.show_easygui_exception_gui()
-            raise
-
-    def enabled_feeds(self) -> Iterator['Feed']:
-        return (feed for feed in self.values() if feed.enabled)
+        self.default_directory = Path(
+            self._json.get('default_directory', TEMPORARY_DIRECTORY)
+        )
+        self.default_command = Command(
+            self._json.get('default_command'),
+            self._json.get('default_command_shell_enabled', False)
+        )
+        self.feeds = OrderedDict(
+            (name, Feed(config=self, name=name, **feed_dict))
+            for name, feed_dict in self._json['feeds'].items()
+        )
 
     def check_feeds(self) -> None:
-        with self.exceptions_shown_as_gui():
-            for feed in self.enabled_feeds():
-                for sub, entry, number in feed.matching_subs():
-                    path_or_url: PathOrUrl = feed.download_entry(entry,
-                                                                 sub.directory)
-                    sub.command(path_or_url)
-                    if number > sub.number:
-                        sub.number = number
+        for feed in self.feeds.values():
+            if not feed.enabled:
+                continue
+            for sub, entry, number in feed.matching_subs():
+                path_or_url = feed.download_entry(entry, sub.directory)
+                sub.command(path_or_url)
+                if number > sub.number:
+                    sub.number = number
 
-    def save_new_episode_numbers(self) -> None:
-        logging.info("Writing episode numbers to '%s'", self.path)
-        json_feeds: Json = self.json_dict['feeds']
-        for feed_name, feed in self.items():
-            json_subs: Json = json_feeds[feed_name]['subscriptions']
-            for sub_name, sub in feed.items():
-                sub_dict: Json = json_subs[sub_name]
+    def save_episode_numbers(self) -> None:
+        logging.info("Writing episode numbers to '%s'", CONFIG_PATH)
+        json_feeds = self._json['feeds']
+        for feed_name, feed in self.feeds.items():
+            json_subs = json_feeds[feed_name]['subscriptions']
+            for sub_name, sub in feed.subscriptions.items():
+                sub_dict = json_subs[sub_name]
                 if sub.number.series is not None:
                     sub_dict['series_number'] = sub.number.series
-                if sub.number.episode is not None:
-                    sub_dict['episode_number'] = sub.number.episode
-        with self.path.open('w', encoding='utf-8') as file:
-            json.dump(self.json_dict, file, indent='\t')
+                sub_dict['episode_number'] = sub.number.episode
+        with open(CONFIG_PATH, mode='w', encoding='utf-8') as file:
+            json.dump(self._json, file, indent=4)
 
 
 class Command:
-    path_substitution_regex: ClassVar[Pattern] \
-        = re.compile(re.escape(COMMAND_PATH_ARGUMENT))
-
     arguments: Optional[List[str]]
     shell: bool
 
@@ -190,17 +153,8 @@ class Command:
         def replacer(match: Match) -> str:
             return os.fspath(path_or_url)
         for argument in self.arguments:
-            yield self.path_substitution_regex.sub(replacer, argument)
-
-    @staticmethod
-    def startfile(path_or_url: PathOrUrl) -> None:
-        # click.launch uses os.system on Windows, which shows a cmd.exe
-        # window for a split second. Hence os.startfile is preferred.
-        path = (str(path_or_url) if isinstance(path_or_url, Path)
-                else path_or_url)
-        if WINDOWS:
-            return os.startfile(path)
-        click.launch(path)
+            yield re.sub(pattern=re.escape(COMMAND_PATH_ARGUMENT),
+                         repl=replacer, string=argument)
 
     def __call__(self, path_or_url: PathOrUrl) -> Optional[subprocess.Popen]:
         if self.arguments is not None:
@@ -214,35 +168,33 @@ class Command:
             return subprocess.Popen(arguments, shell=self.shell,
                                     startupinfo=startupinfo)
         logging.info("Launching %r with default program", path_or_url)
-        self.startfile(path_or_url)
+        startfile(path_or_url)
 
 
-class Feed(collections.OrderedDict):
-    windows_forbidden_characters_regex: ClassVar[Pattern] \
-        = re.compile(r'[\\/:\*\?"<>\|]')
-
+class Feed:
     _enabled: bool
 
-    config: Config
+    config: TorrentRSS
+    subscriptions: Dict[str, 'Subscription']
     name: str
     url: str
     user_agent: Optional[str]
-    magnet_enabled: bool
-    torrent_url_enabled: bool
-    torrent_file_enabled: bool
-    hide_torrent_filename_enabled: bool
+    use_magnet: bool
+    use_torrent_url: bool
+    use_torrent_file: bool
+    hide_torrent_filename: bool
 
-    def __init__(self, config: Config, name: str,
+    def __init__(self, config: TorrentRSS, name: str,
                  url: str, subscriptions: Json,
                  user_agent: Optional[str]=None, enabled: bool=True,
-                 magnet_enabled: bool=True, torrent_url_enabled: bool=True,
-                 torrent_file_enabled: bool=True,
-                 hide_torrent_filename_enabled: bool=True) -> None:
-        if not any([magnet_enabled, torrent_url_enabled,
-                    torrent_file_enabled]):
-            raise ConfigError(f'Feed {name!r}: at least one of '
-                              "'magnet_enabled', 'torrent_url_enabled', or "
-                              "'torrent_file_enabled' must be true")
+                 use_magnet: bool=True, use_torrent_url: bool=True,
+                 use_torrent_file: bool=True,
+                 hide_torrent_filename: bool=True) -> None:
+        if not use_magnet and not use_torrent_url and not use_torrent_file:
+            raise ConfigError(
+                f"Feed {name!r}: at least one of 'use_magnet', "
+                "'use_torrent_url', or 'use_torrent_file' must be true"
+            )
 
         self._enabled = False
 
@@ -251,50 +203,53 @@ class Feed(collections.OrderedDict):
         self.url = url
         self.user_agent = user_agent
         self.enabled = enabled
-        self.magnet_enabled = magnet_enabled
-        self.torrent_url_enabled = torrent_url_enabled
-        self.torrent_file_enabled = torrent_file_enabled
-        self.hide_torrent_filename_enabled = hide_torrent_filename_enabled
+        self.use_magnet = use_magnet
+        self.use_torrent_url = use_torrent_url
+        self.use_torrent_file = use_torrent_file
+        self.hide_torrent_filename = hide_torrent_filename
 
-        self.update((name, Subscription(feed=self, name=name, **sub_dict))
-                    for name, sub_dict in subscriptions.items())
+        self.subscriptions = OrderedDict(
+            (name, Subscription(feed=self, name=name, **sub_dict))
+            for name, sub_dict in subscriptions.items()
+        )
 
-    def __repr__(self) -> str:
-        return (f'{self.__class__.__name__}(name={self.name!r}, '
-                f'url={self.url!r}, subs={list(self.keys())})')
+    def __repr__(self):
+        return (f'{self.__class__.__name__}(enabled={self.enabled}, '
+                f'name={self.name}, url={self.url})')
 
     @property
     def enabled(self) -> bool:
-        return self._enabled and any(self.enabled_subs())
+        return self._enabled and any(sub.enabled for sub in
+                                     self.subscriptions.values())
 
     @enabled.setter
     def enabled(self, value: bool) -> None:
         self._enabled = value
 
-    def fetch(self) -> feedparser.FeedParserDict:
-        rss: feedparser.FeedParserDict = feedparser.parse(self.url)
+    def fetch(self) -> FeedParserDict:
+        rss = feedparser.parse(self.url)
         if rss['bozo']:
             raise FeedError(f'Feed {self.name!r}: error parsing '
-                            f'url {self.url!r}') from rss['bozo_exception']
+                            f'url {self.url!r}') \
+                from rss['bozo_exception']
         logging.info('Feed %r: downloaded url %r', self.name, self.url)
         return rss
 
-    def enabled_subs(self) -> Iterator['Subscription']:
-        return (sub for sub in self.values() if sub.enabled)
-
     def matching_subs(self) -> Iterator[Tuple['Subscription',
-                                              feedparser.FeedParserDict,
+                                              FeedParserDict,
                                               'EpisodeNumber']]:
-        rss: feedparser.FeedParserDict = self.fetch()
-        for sub in self.enabled_subs():
+        rss = self.fetch()
+        for sub in self.subscriptions.values():
+            if not sub.enabled:
+                continue
             logging.debug('Sub %r: checking entries against pattern: %s',
                           sub.name, sub.regex.pattern)
-            sub_number: EpisodeNumber = sub.number
+            current_number = sub.number
             for index, entry in enumerate(rss['entries']):
-                match: Match = sub.regex.search(entry['title'])
+                match = sub.regex.search(entry['title'])
                 if match:
                     number = EpisodeNumber.from_regex_match(match)
-                    if number > sub_number:
+                    if number > current_number:
                         logging.info('MATCH: entry %s %r has greater number '
                                      'than sub %r: %s > %s',
                                      index, entry['title'], sub.name,
@@ -310,10 +265,10 @@ class Feed(collections.OrderedDict):
                                   index, entry['title'], sub.name)
 
     @staticmethod
-    def torrent_url_for_entry(rss_entry: feedparser.FeedParserDict) -> str:
+    def torrent_url_for_entry(rss_entry: FeedParserDict) -> str:
         for link in rss_entry['links']:
             if link['type'] == TORRENT_MIMETYPE:
-                href: str = link['href']
+                href = link['href']
                 logging.debug('Entry %r: first link with mimetype %r is %r',
                               rss_entry['title'], TORRENT_MIMETYPE, href)
                 return href
@@ -323,38 +278,36 @@ class Feed(collections.OrderedDict):
         return link
 
     @staticmethod
-    def magnet_uri_for_entry(rss_entry: feedparser.FeedParserDict) -> str:
+    def magnet_uri_for_entry(rss_entry: FeedParserDict) -> str:
         try:
-            magnet: str = rss_entry['torrent_magneturi']
+            magnet = rss_entry['torrent_magneturi']
             logging.debug('Entry %r: has magnet url %r',
                           rss_entry['title'], magnet)
             return magnet
         except KeyError:
-            logging.info("Entry %r: 'magnet_enabled' is true but no "
+            logging.info("Entry %r: 'use_magnet' is true but no "
                          'magnet link could be found', rss_entry['title'])
             raise
 
     def download_entry_torrent_file(self, url: str,
-                                    rss_entry: feedparser.FeedParserDict,
+                                    rss_entry: FeedParserDict,
                                     directory: Path) -> Path:
-        headers: Dict[str, str] = ({} if self.user_agent is None else
-                                   {'User-Agent': self.user_agent})
+        headers = ({} if self.user_agent is None else
+                   {'User-Agent': self.user_agent})
         logging.debug('Feed %r: sending GET request to %r with headers %s',
                       self.name, url, headers)
-        response: requests.Response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers)
         logging.debug("Feed %r: response status code is %s, 'ok' is %s",
                       self.name, response.status_code, response.ok)
         response.raise_for_status()
 
-        title: str = (hashlib.sha3_224(response.content).hexdigest()
-                      if self.hide_torrent_filename_enabled else
-                      rss_entry['title'])
-        path: Path = directory.joinpath(title) \
-            .with_suffix('.torrent')
+        title = (hashlib.sha256(response.content).hexdigest()
+                 if self.hide_torrent_filename else
+                 rss_entry['title'])
+        path = Path(directory, title).with_suffix('.torrent')
         if WINDOWS:
-            new_name: str = self.windows_forbidden_characters_regex.sub(
-                '_', path.name
-            )
+            new_name = re.sub(pattern=r'[\\/:\*\?"<>\|]', repl='_',
+                              string=path.name)
             path = path.with_name(new_name)
 
         directory.mkdir(parents=True, exist_ok=True)
@@ -363,26 +316,26 @@ class Feed(collections.OrderedDict):
         path.write_bytes(response.content)
         return path
 
-    def download_entry(self, rss_entry: feedparser.FeedParserDict,
+    def download_entry(self, rss_entry: FeedParserDict,
                        directory: Path) -> PathOrUrl:
-        if self.magnet_enabled:
+        if self.use_magnet:
             with contextlib.suppress(KeyError):
                 return self.magnet_uri_for_entry(rss_entry)
 
-        url: str = self.torrent_url_for_entry(rss_entry)
-        if self.torrent_url_enabled:
+        url = self.torrent_url_for_entry(rss_entry)
+        if self.use_torrent_url:
             logging.debug('Feed %r: returning torrent url %r', self.name, url)
             return url
 
-        if not self.torrent_file_enabled:
-            if self.magnet_enabled:
-                message = ("'magnet_enabled' is true but it failed, and"
-                           "'torrent_url_enabled' and 'torrent_file_enabled' "
+        if not self.use_torrent_file:
+            if self.use_magnet:
+                message = ("'use_magnet' is true but it failed, and"
+                           "'use_torrent_url' and 'use_torrent_file' "
                            'are false.')
             else:
-                message = ("'magnet_enabled', 'torrent_url_enabled', and "
-                           "'torrent_file_enabled' are all false.")
-            raise FeedError(f'Feed {self.name!r}: {message}'
+                message = ("'use_magnet', 'use_torrent_url', and "
+                           "'use_torrent_file' are all false.")
+            raise FeedError(f'Feed {self.name!r}: {message} '
                             'Nothing to download.')
 
         try:
@@ -392,32 +345,42 @@ class Feed(collections.OrderedDict):
                 from error
 
 
-class EpisodeNumber(NamedTuple('EpisodeNumberBase',
-                               series=Optional[int], episode=Optional[int])):
-    def __gt__(self, other: Tuple[Optional[int], Optional[int]]) -> bool:
-        series, episode = other
-        if self.episode is None:
-            return False
-        return episode is None \
-            or (self.series is not None and series is not None
-                and self.series > series) \
-            or self.episode > episode
+class EpisodeNumber:
+    series: Optional[int]
+    episode: Optional[int]
+
+    def __init__(self, series: Optional[int], episode: Optional[int]) -> None:
+        self.series = series
+        self.episode = episode
+
+    def __repr__(self):
+        return (f'{self.__class__.__name__}(series={self.series}, '
+                f'episode={self.episode})')
 
     @classmethod
     def from_regex_match(cls, match: Match) -> 'EpisodeNumber':
-        groups: Dict[str, str] = match.groupdict()
-        series: Optional[int] = (int(groups['series'])
-                                 if 'series' in groups else None)
-        return cls(series=series, episode=int(groups['episode']))
+        groups = match.groupdict()
+        return cls(
+            series=int(groups['series']) if 'series' in groups else None,
+            episode=int(groups['episode'])
+        )
+
+    def __gt__(self, other: 'EpisodeNumber') -> bool:
+        if self.episode is None:
+            return False
+        return other.episode is None \
+            or (self.series is not None and other.series is not None
+                and self.series > other.series) \
+            or self.episode > other.episode
 
 
 class Subscription:
-    _regex: Optional[Pattern]
     _directory: Optional[Path]
     _command: Optional[Command]
 
     feed: Feed
     name: str
+    regex: Pattern
     number: EpisodeNumber
     enabled: bool
 
@@ -426,42 +389,40 @@ class Subscription:
                  episode_number: Optional[int]=None,
                  directory: Optional[str]=None,
                  command: Optional[List[str]]=None,
-                 command_shell_enabled: bool=False,
+                 use_shell_for_command: bool=False,
                  enabled: bool=True) -> None:
-        self._regex = self._directory = self._command = None
+        self._directory = self._command = None
 
         self.feed = feed
         self.name = name
         try:
             self.regex = re.compile(pattern)
         except re.error as error:
-            raise ConfigError(f'Feed {feed.name!r} sub {self.name!r} pattern '
-                              f'{pattern!r} not valid regex: '
-                              f'{", ".join(error.args)}') from error
+            args = ", ".join(error.args)
+            raise ConfigError(f'Feed {feed.name!r} sub {name!r} pattern '
+                              f'{pattern!r} not valid regex: {args}') \
+                from error
+        if 'episode' not in self.regex.groupindex:
+            raise ConfigError(f'Feed {feed.name!r} sub {name!r} pattern '
+                              f'{pattern!r} has no group for the episode '
+                              'number')
+
         self.number = EpisodeNumber(series=series_number,
                                     episode=episode_number)
         if directory is not None:
             self.directory = Path(directory)
         if command is not None:
             self.command = Command(arguments=command,
-                                   shell=command_shell_enabled)
+                                   shell=use_shell_for_command)
         self.enabled = enabled
 
+    def __repr__(self):
+        return (f'{self.__class__.__name__}(enabled={self.enabled}, '
+                f'name={self.name}, feed={self.feed.name})')
+
     @property
-    def config(self) -> Config:
+    def config(self) -> TorrentRSS:
         return self.feed.config
-
-    @property
-    def regex(self) -> Optional[Pattern]:
-        return self._regex
-
-    @regex.setter
-    def regex(self, value: Pattern):
-        if 'episode' not in value.groupindex:
-            raise ConfigError(f'Feed {self.feed.name!r} sub {self.name!r} '
-                              f'pattern {value!r} has no group for the '
-                              'episode number')
-        self._regex = value
 
     @property
     def directory(self) -> Path:
@@ -479,12 +440,6 @@ class Subscription:
     def command(self, value: Command):
         self._command = value
 
-    def __repr__(self) -> str:
-        return (f'{self.__class__.__name__}(name={self.name!r}, '
-                f'pattern={self.regex.pattern!r}, '
-                f'directory={self.directory!r}, command={self.command!r}, '
-                f'enabled={self.enabled}, number={self.number})')
-
 
 def configure_logging(level: Optional[str]=None) -> None:
     logging.basicConfig(format=LOG_MESSAGE_FORMAT, level=level)
@@ -499,7 +454,7 @@ def configure_logging(level: Optional[str]=None) -> None:
 def print_schema(context: click.Context, parameter: click.Parameter,
                  value: Any) -> None:
     if value:
-        print(Config.get_schema())
+        print(get_schema())
         context.exit()
 
 
@@ -515,14 +470,13 @@ def main(logging_level: str) -> None:
 
     try:
         try:
-            config = Config()
+            config = TorrentRSS()
         except FileNotFoundError as error:
-            raise click.Abort(
-                f'No config file found at {str(CONFIG_PATH)!r}. '
-                "See '--print-config-schema' for reference."
-            ) from error
+            raise click.Abort(f'No config file found at {str(CONFIG_PATH)!r}. '
+                              "See '--print-config-schema' for reference.") \
+                from error
         config.check_feeds()
-        config.save_new_episode_numbers()
+        config.save_episode_numbers()
     except Exception as error:
         logging.exception(error.__class__.__name__)
         raise

@@ -2,24 +2,20 @@
     "$schema": "http://json-schema.org/draft-04/schema#",
     "type": "object",
     "properties": {
-        "exception_gui": {
-            "description": "Type of GUI shown when an error occurs. 'easygui' is supported if the respective Python package is installed. 'notify-send' is supported if notify-send is on the PATH environment variable. If missing, no GUI is used, and the only way to find out the program failed is to through logs.",
-            "type": "string"
-        },
         "default_directory": {
-            "description": "The default directory to which torrent files are downloaded. If missing, the operating system's temporary directory is used.",
+            "description": "The directory to which torrent files are downloaded. Overridden by individual subscriptions' 'directory' property. Defaults to the operating system's temporary directory.",
             "type": "string"
         },
         "default_command": {
-            "description": "The default command used to execute file paths or URLs. See the subscription 'command' property for more details. If missing, the path or URL is launched with the operating system's default program for that protocol.",
+            "description": "The command used to execute file paths or URLs. Overridden by individual subscriptions' 'command' property. '$PATH_OR_URL' is substituted for the torrent's URL, path, or magnet link, depending on the feed's configuration. This array is otherwise passed directly to Python's subprocess module, which takes care of any escaping or quoting, so there is no need to do so yourself. By default the path or URL is launched with the operating system's default program for that protocol.",
             "type": "array",
             "items": {
                 "type": "string"
             },
             "minItems": 1
         },
-        "default_command_shell_enabled": {
-            "description": "Whether to run the above command through the shell. Considered false if missing.",
+        "default_use_shell_for_command": {
+            "description": "Whether to run the above command through the shell. Overridden by individual subscriptions' 'use_shell_for_command' property. Defaults to false.",
             "type": "boolean"
         },
         "feeds": {
@@ -28,32 +24,32 @@
                 ".+": {
                     "type": "object",
                     "properties": {
+                        "enabled": {
+                            "description": "Defaults to true",
+                            "type": "boolean"
+                        },
                         "url": {
                             "description": "The URL of the RSS feed.",
                             "type": "string"
                         },
                         "user_agent": {
-                            "description": "User agent used to send the GET request to download the feed. If missing, the default Python requests user agent is used.",
+                            "description": "User agent used to send the GET request to download the feed. Defaults to the Python requests package user agent.",
                             "type": "string"
                         },
-                        "enabled": {
-                            "description": "Considered true if missing",
+                        "use_magnet": {
+                            "description": "If true, magnet URLs are used if possible. Defaults to true",
                             "type": "boolean"
                         },
-                        "magnet_enabled": {
-                            "description": "If true, magnet URLs are used if possible. Considered true if missing",
+                        "use_torrent_url": {
+                            "description": "If true, the torrent file's URL is passed to the command. Takes lower precedence than 'use_magnet', but higher precedence than 'use_torrent_file'. Defaults to true.",
                             "type": "boolean"
                         },
-                        "torrent_url_enabled": {
-                            "description": "If true, the torrent file's URL is passed to the command. Takes lower precedence than 'magnet_enabled', but higher precedence than 'torrent_file_enabled'. Considered true if missing.",
+                        "use_torrent_file": {
+                            "description": "If true, the torrent file is downloaded, and the path to that file is passed to the command. Takes lower precedence than 'use_magnet' and 'use_torrent_url'. Defaults to true",
                             "type": "boolean"
                         },
-                        "torrent_file_enabled": {
-                            "description": "If true, the torrent file is downloaded, and the path to that file is passed to the command. Takes lower precedence than 'magnet_enabled' and 'torrent_url_enabled' if they are also true. Considered true if missing",
-                            "type": "boolean"
-                        },
-                        "hide_torrent_filename_enabled": {
-                            "description": "If true, the torrent's filename is replaced with its SHA-256 hash. If false, the filename is unchanged, although invalid characters are replaced with underscores on Windows systems. Ignored if 'torrent_url_enabled' is false. Considered true if missing.",
+                        "hide_torrent_filename": {
+                            "description": "If true, the torrent's filename is replaced with its SHA-256 hash. If false, the filename is unchanged, although invalid characters are replaced with underscores on Windows. Ignored if 'use_torrent_url' is false. Defaults to true.",
                             "type": "boolean"
                         },
                         "subscriptions": {
@@ -62,6 +58,10 @@
                                 ".+": {
                                     "type": "object",
                                     "properties": {
+                                        "enabled": {
+                                            "description": "Defaults to true",
+                                            "type": "boolean"
+                                        },
                                         "pattern": {
                                             "description": "A regular expression to match the torrents you want from the RSS feed. Must have a group to capture the episode number, like so: (?P<episode>[0-9]{2}). The series number may also be captured with the 'series' group. Because the config is a JSON file, double backslashes are required.",
                                             "type": "string"
@@ -71,11 +71,11 @@
                                             "type": "integer"
                                         },
                                         "series_number": {
-                                            "description": "The current series number. Should be left out if not applicable",
+                                            "description": "The current series number. See 'episode_number', as the same applies here.",
                                             "type": "integer"
                                         },
                                         "directory": {
-                                            "description": "The directory to which torrent files are downloaded. If missing, 'default_directory' is used.",
+                                            "description": "The directory to which torrent files are downloaded. If missing, the global 'default_directory' is used.",
                                             "type": "string"
                                         },
                                         "command": {
@@ -86,12 +86,8 @@
                                             },
                                             "minItems": 1
                                         },
-                                        "command_shell_enabled": {
-                                            "description": "Considered false if missing.",
-                                            "type": "boolean"
-                                        },
-                                        "enabled": {
-                                            "description": "Considered true if missing",
+                                        "use_shell_for_command": {
+                                            "description": "Defaults to false.",
                                             "type": "boolean"
                                         }
                                     },
