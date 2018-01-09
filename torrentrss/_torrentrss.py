@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import json
 import shutil
 import hashlib
@@ -366,7 +367,8 @@ class Subscription:
 
 
 def configure_logging(level: Optional[str]=None) -> None:
-    logging.basicConfig(format=LOG_MESSAGE_FORMAT, level=level)
+    logging.basicConfig(format=LOG_MESSAGE_FORMAT, level=level,
+                        stream=sys.stdout)
 
     # silence requests' logging in all but the worst cases
     logging.getLogger('requests') \

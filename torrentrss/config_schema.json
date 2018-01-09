@@ -37,7 +37,7 @@
                             "type": "string"
                         },
                         "prefer_torrent_url": {
-                            "description": "If true, the torrent file's URL is passed to the command rather than first downloading the file and passing the path.",
+                            "description": "If true, the torrent file's URL is passed to the command rather than first downloading the file and passing the path. Defaults to true",
                             "type": "boolean"
                         },
                         "hide_torrent_filename": {
