@@ -9,7 +9,7 @@ setuptools.setup(
     license='MIT',
     description=('An RSS torrent fetcher. Matches entries with regexp, '
                  'keeps track of episode numbers, allows custom commands, '
-                 'magnet links, and more.'),
+                 'and more.'),
     long_description=readme,
     author='Gregor Smith',
     author_email='gregor_smith@outlook.com',
