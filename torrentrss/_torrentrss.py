@@ -10,9 +10,10 @@ import contextlib
 import subprocess
 from pathlib import Path
 from collections import OrderedDict
+from typing.io import TextIO
 from typing.re import Pattern, Match
-from typing import (Any, Dict, List, Tuple, Union,
-                    Generator, Iterator, Optional, ClassVar)
+from typing import (Any, Dict, List, Tuple, Union, NamedTuple,
+                    Generator, Iterator, Optional)
 
 import click
 import requests
@@ -74,24 +75,15 @@ def exceptions_shown_as_gui() -> Generator:
         raise
 
 
-def startfile(path_or_url: PathOrUrl) -> None:
-    # click.launch uses os.system on Windows, which shows a cmd.exe
-    # window for a split second. Hence os.startfile is preferred.
-    if WINDOWS:
-        return os.startfile(path_or_url)
-    click.launch(os.fspath(path_or_url))
-
-
 class TorrentRSS:
     _json: Json
 
     feeds: Dict[str, 'Feed']
-    config_path: Path
     default_directory: Path
     default_command: 'Command'
 
-    def __init__(self) -> None:
-        with open(CONFIG_PATH, encoding='utf-8') as file:
+    def __init__(self, file: Optional[TextIO]) -> None:
+        with contextlib.closing(file or open(CONFIG_PATH, encoding='utf-8')):
             self._json = json.load(file, object_pairs_hook=OrderedDict)
         jsonschema.validate(self._json, get_schema_dict())
 
@@ -114,8 +106,6 @@ class TorrentRSS:
             for sub, entry, number in feed.matching_subs():
                 path_or_url = feed.download_entry(entry, sub.directory)
                 sub.command(path_or_url)
-                if number > sub.number:
-                    sub.number = number
 
     def save_episode_numbers(self) -> None:
         logging.info("Writing episode numbers to '%s'", CONFIG_PATH)
@@ -156,6 +146,14 @@ class Command:
             yield re.sub(pattern=re.escape(COMMAND_PATH_ARGUMENT),
                          repl=replacer, string=argument)
 
+    @staticmethod
+    def startfile(path_or_url: PathOrUrl) -> None:
+        # click.launch uses os.system on Windows, which shows a cmd.exe
+        # window for a split second. Hence os.startfile is preferred.
+        if WINDOWS:
+            return os.startfile(path_or_url)
+        click.launch(os.fspath(path_or_url))
+
     def __call__(self, path_or_url: PathOrUrl) -> Optional[subprocess.Popen]:
         if self.arguments is not None:
             if WINDOWS:
@@ -168,7 +166,7 @@ class Command:
             return subprocess.Popen(arguments, shell=self.shell,
                                     startupinfo=startupinfo)
         logging.info("Launching %r with default program", path_or_url)
-        startfile(path_or_url)
+        self.startfile(path_or_url)
 
 
 class Feed:
@@ -239,21 +237,20 @@ class Feed:
                                               FeedParserDict,
                                               'EpisodeNumber']]:
         rss = self.fetch()
-        for sub in self.subscriptions.values():
-            if not sub.enabled:
-                continue
-            logging.debug('Sub %r: checking entries against pattern: %s',
-                          sub.name, sub.regex.pattern)
-            current_number = sub.number
-            for index, entry in enumerate(rss['entries']):
+        for index, entry in enumerate(reversed(rss['entries'])):
+            index = len(rss['entries']) - index - 1
+            for sub in self.subscriptions.values():
+                if not sub.enabled:
+                    continue
                 match = sub.regex.search(entry['title'])
                 if match:
                     number = EpisodeNumber.from_regex_match(match)
-                    if number > current_number:
+                    if number > sub.number:
                         logging.info('MATCH: entry %s %r has greater number '
                                      'than sub %r: %s > %s',
                                      index, entry['title'], sub.name,
                                      number, sub.number)
+                        sub.number = number
                         yield sub, entry, number
                     else:
                         logging.debug('NO MATCH: entry %s %r matches but '
@@ -289,6 +286,10 @@ class Feed:
                          'magnet link could be found', rss_entry['title'])
             raise
 
+    @staticmethod
+    def substitute_windows_forbidden_characters(string):
+        return re.sub(pattern=r'[\\/:\*\?"<>\|]', repl='_', string=string)
+
     def download_entry_torrent_file(self, url: str,
                                     rss_entry: FeedParserDict,
                                     directory: Path) -> Path:
@@ -306,8 +307,7 @@ class Feed:
                  rss_entry['title'])
         path = Path(directory, title).with_suffix('.torrent')
         if WINDOWS:
-            new_name = re.sub(pattern=r'[\\/:\*\?"<>\|]', repl='_',
-                              string=path.name)
+            new_name = self.substitute_windows_forbidden_characters(path.name)
             path = path.with_name(new_name)
 
         directory.mkdir(parents=True, exist_ok=True)
@@ -345,18 +345,12 @@ class Feed:
                 from error
 
 
-class EpisodeNumber:
+class _EpisodeNumberBase(NamedTuple):
     series: Optional[int]
     episode: Optional[int]
 
-    def __init__(self, series: Optional[int], episode: Optional[int]) -> None:
-        self.series = series
-        self.episode = episode
 
-    def __repr__(self):
-        return (f'{self.__class__.__name__}(series={self.series}, '
-                f'episode={self.episode})')
-
+class EpisodeNumber(_EpisodeNumberBase):
     @classmethod
     def from_regex_match(cls, match: Match) -> 'EpisodeNumber':
         groups = match.groupdict()
@@ -365,19 +359,17 @@ class EpisodeNumber:
             episode=int(groups['episode'])
         )
 
-    def __gt__(self, other: 'EpisodeNumber') -> bool:
+    def __gt__(self, other: Tuple) -> bool:
+        series, episode = other
         if self.episode is None:
             return False
-        return other.episode is None \
-            or (self.series is not None and other.series is not None
-                and self.series > other.series) \
-            or self.episode > other.episode
+        return episode is None \
+            or (self.series is not None and series is not None
+                and self.series > series) \
+            or self.episode > episode
 
 
 class Subscription:
-    _directory: Optional[Path]
-    _command: Optional[Command]
-
     feed: Feed
     name: str
     regex: Pattern
@@ -406,39 +398,19 @@ class Subscription:
             raise ConfigError(f'Feed {feed.name!r} sub {name!r} pattern '
                               f'{pattern!r} has no group for the episode '
                               'number')
-
         self.number = EpisodeNumber(series=series_number,
                                     episode=episode_number)
-        if directory is not None:
-            self.directory = Path(directory)
-        if command is not None:
-            self.command = Command(arguments=command,
-                                   shell=use_shell_for_command)
+        self.directory = (feed.config.default_directory
+                          if directory is None else
+                          Path(directory))
+        self.command = (feed.config.default_command
+                        if command is None else
+                        Command(command, use_shell_for_command))
         self.enabled = enabled
 
     def __repr__(self):
         return (f'{self.__class__.__name__}(enabled={self.enabled}, '
                 f'name={self.name}, feed={self.feed.name})')
-
-    @property
-    def config(self) -> TorrentRSS:
-        return self.feed.config
-
-    @property
-    def directory(self) -> Path:
-        return self._directory or self.config.default_directory
-
-    @directory.setter
-    def directory(self, value: Path):
-        self._directory = value
-
-    @property
-    def command(self) -> Command:
-        return self._command or self.config.default_command
-
-    @command.setter
-    def command(self, value: Command):
-        self._command = value
 
 
 def configure_logging(level: Optional[str]=None) -> None:
