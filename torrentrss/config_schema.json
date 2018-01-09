@@ -7,7 +7,7 @@
             "type": "string"
         },
         "default_command": {
-            "description": "The command used to execute file paths or URLs. Overridden by individual subscriptions' 'command' property. '$PATH_OR_URL' is substituted for the torrent's URL, path, or magnet link, depending on the feed's configuration. This array is otherwise passed directly to Python's subprocess module, which takes care of any escaping or quoting, so there is no need to do so yourself. By default the path or URL is launched with the operating system's default program for that protocol.",
+            "description": "The command used to execute file paths or URLs. Overridden by individual subscriptions' 'command' property. '$PATH_OR_URL' is substituted for the torrent's URL or path depending on the feed's configuration. This array is otherwise passed directly to Python's subprocess module, which takes care of any escaping or quoting, so there is no need to do so yourself. By default the path or URL is launched with the operating system's default program for that protocol.",
             "type": "array",
             "items": {
                 "type": "string"
@@ -36,20 +36,12 @@
                             "description": "User agent used to send the GET request to download the feed. Defaults to the Python requests package user agent.",
                             "type": "string"
                         },
-                        "use_magnet": {
-                            "description": "If true, magnet URLs are used if possible. Defaults to true",
-                            "type": "boolean"
-                        },
-                        "use_torrent_url": {
-                            "description": "If true, the torrent file's URL is passed to the command. Takes lower precedence than 'use_magnet', but higher precedence than 'use_torrent_file'. Defaults to true.",
-                            "type": "boolean"
-                        },
-                        "use_torrent_file": {
-                            "description": "If true, the torrent file is downloaded, and the path to that file is passed to the command. Takes lower precedence than 'use_magnet' and 'use_torrent_url'. Defaults to true",
+                        "prefer_torrent_url": {
+                            "description": "If true, the torrent file's URL is passed to the command rather than first downloading the file and passing the path.",
                             "type": "boolean"
                         },
                         "hide_torrent_filename": {
-                            "description": "If true, the torrent's filename is replaced with its SHA-256 hash. If false, the filename is unchanged, although invalid characters are replaced with underscores on Windows. Ignored if 'use_torrent_url' is false. Defaults to true.",
+                            "description": "If true, the torrent's filename is replaced with its SHA-256 hash. If false, the filename is unchanged, although invalid characters are replaced with underscores on Windows. Ignored if 'prefer_torrent_url' is false. Defaults to true.",
                             "type": "boolean"
                         },
                         "subscriptions": {
@@ -79,7 +71,7 @@
                                             "type": "string"
                                         },
                                         "command": {
-                                            "description": "Command run after the torrent file is downloaded. '$PATH_OR_URL' is substituted for the torrent's URL, path, or magnet link, depending on the feed's configuration. This array is otherwise passed directly to Python's subprocess module, which takes care of any escaping or quoting, so there is no need to do so yourself. If missing, 'default_command' is used.",
+                                            "description": "Command run after the torrent file is downloaded. '$PATH_OR_URL' is substituted for the torrent's URL or path depending on the feed's configuration. This array is otherwise passed directly to Python's subprocess module, which takes care of any escaping or quoting, so there is no need to do so yourself. If missing, 'default_command' is used.",
                                             "type": "array",
                                             "items": {
                                                 "type": "string"

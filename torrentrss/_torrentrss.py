@@ -177,39 +177,26 @@ class Feed:
     name: str
     url: str
     user_agent: Optional[str]
-    use_magnet: bool
-    use_torrent_url: bool
-    use_torrent_file: bool
+    prefer_torrent_url: bool
     hide_torrent_filename: bool
 
-    def __init__(self, config: TorrentRSS, name: str,
-                 url: str, subscriptions: Json,
-                 user_agent: Optional[str]=None, enabled: bool=True,
-                 use_magnet: bool=True, use_torrent_url: bool=True,
-                 use_torrent_file: bool=True,
+    def __init__(self, config: TorrentRSS, name: str, url: str,
+                 subscriptions: Json, user_agent: Optional[str]=None,
+                 enabled: bool=True, prefer_torrent_url: bool=True,
                  hide_torrent_filename: bool=True) -> None:
-        if not use_magnet and not use_torrent_url and not use_torrent_file:
-            raise ConfigError(
-                f"Feed {name!r}: at least one of 'use_magnet', "
-                "'use_torrent_url', or 'use_torrent_file' must be true"
-            )
-
         self._enabled = False
 
         self.config = config
         self.name = name
         self.url = url
-        self.user_agent = user_agent
-        self.enabled = enabled
-        self.use_magnet = use_magnet
-        self.use_torrent_url = use_torrent_url
-        self.use_torrent_file = use_torrent_file
-        self.hide_torrent_filename = hide_torrent_filename
-
         self.subscriptions = OrderedDict(
             (name, Subscription(feed=self, name=name, **sub_dict))
             for name, sub_dict in subscriptions.items()
         )
+        self.user_agent = user_agent
+        self.enabled = enabled
+        self.prefer_torrent_url = prefer_torrent_url
+        self.hide_torrent_filename = hide_torrent_filename
 
     def __repr__(self):
         return (f'{self.__class__.__name__}(enabled={self.enabled}, '
@@ -275,23 +262,10 @@ class Feed:
         return link
 
     @staticmethod
-    def magnet_uri_for_entry(rss_entry: FeedParserDict) -> str:
-        try:
-            magnet = rss_entry['torrent_magneturi']
-            logging.debug('Entry %r: has magnet url %r',
-                          rss_entry['title'], magnet)
-            return magnet
-        except KeyError:
-            logging.info("Entry %r: 'use_magnet' is true but no "
-                         'magnet link could be found', rss_entry['title'])
-            raise
-
-    @staticmethod
     def substitute_windows_forbidden_characters(string):
         return re.sub(pattern=r'[\\/:\*\?"<>\|]', repl='_', string=string)
 
-    def download_entry_torrent_file(self, url: str,
-                                    rss_entry: FeedParserDict,
+    def download_entry_torrent_file(self, url: str, title: str,
                                     directory: Path) -> Path:
         headers = ({} if self.user_agent is None else
                    {'User-Agent': self.user_agent})
@@ -303,8 +277,7 @@ class Feed:
         response.raise_for_status()
 
         title = (hashlib.sha256(response.content).hexdigest()
-                 if self.hide_torrent_filename else
-                 rss_entry['title'])
+                 if self.hide_torrent_filename else title)
         path = Path(directory, title).with_suffix('.torrent')
         if WINDOWS:
             new_name = self.substitute_windows_forbidden_characters(path.name)
@@ -318,28 +291,15 @@ class Feed:
 
     def download_entry(self, rss_entry: FeedParserDict,
                        directory: Path) -> PathOrUrl:
-        if self.use_magnet:
-            with contextlib.suppress(KeyError):
-                return self.magnet_uri_for_entry(rss_entry)
-
         url = self.torrent_url_for_entry(rss_entry)
-        if self.use_torrent_url:
+        if self.prefer_torrent_url:
             logging.debug('Feed %r: returning torrent url %r', self.name, url)
             return url
 
-        if not self.use_torrent_file:
-            if self.use_magnet:
-                message = ("'use_magnet' is true but it failed, and"
-                           "'use_torrent_url' and 'use_torrent_file' "
-                           'are false.')
-            else:
-                message = ("'use_magnet', 'use_torrent_url', and "
-                           "'use_torrent_file' are all false.")
-            raise FeedError(f'Feed {self.name!r}: {message} '
-                            'Nothing to download.')
-
         try:
-            return self.download_entry_torrent_file(url, rss_entry, directory)
+            return self.download_entry_torrent_file(
+                url, rss_entry['title'], directory
+            )
         except Exception as error:
             raise FeedError(f'Feed {self.name!r}: failed to download {url}') \
                 from error
