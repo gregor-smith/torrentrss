@@ -1,6 +1,5 @@
 import os
 import re
-import sys
 import json
 import shutil
 import hashlib
@@ -10,17 +9,16 @@ import contextlib
 import subprocess
 from pathlib import Path
 from collections import OrderedDict
-from typing.io import TextIO
 from typing.re import Pattern, Match
-from typing import (Any, Dict, List, Tuple, Union, NamedTuple,
-                    Generator, Iterator, Optional)
+from typing import (Any, Dict, List, Tuple, Union, TextIO,
+                    NamedTuple, Iterator, Optional)
 
 import click
 import requests
 import feedparser
-from feedparser import FeedParserDict
 import jsonschema
 import pkg_resources
+from feedparser import FeedParserDict
 
 NAME = 'torrentrss'
 VERSION = '0.5.3'
@@ -59,31 +57,28 @@ def get_schema_dict() -> Json:
     return json.loads(get_schema())
 
 
-@contextlib.contextmanager
-def exceptions_shown_as_gui() -> Generator:
-    try:
-        yield
-    except Exception:
-        text = f'An exception of type {sys.last_type.__name__} occurred.'
-        if shutil.which('notify-send') is not None:
-            subprocess.Popen(['notify-send', '--app-name', NAME, NAME, text])
-            return
-        with contextlib.suppress(ImportError):
-            from easygui import exceptionbox
-            exceptionbox(msg=text, title=NAME)
-            return
-        raise
+def show_exception_gui(exception) -> None:
+    text = f'An exception of type {exception.__class__.__name__} occurred.'
+    if shutil.which('notify-send') is not None:
+        subprocess.Popen(['notify-send', '--app-name', NAME, NAME, text])
+        return
+    with contextlib.suppress(ImportError):
+        from easygui import exceptionbox
+        exceptionbox(msg=text, title=NAME)
 
 
 class TorrentRSS:
     _json: Json
 
+    path: Path
     feeds: Dict[str, 'Feed']
     default_directory: Path
     default_command: 'Command'
+    replace_windows_forbidden_characters: bool
 
-    def __init__(self, file: Optional[TextIO]) -> None:
-        with contextlib.closing(file or open(CONFIG_PATH, encoding='utf-8')):
+    def __init__(self, path: Path=CONFIG_PATH) -> None:
+        self.path = path
+        with open(self.path, encoding='utf-8') as file:
             self._json = json.load(file, object_pairs_hook=OrderedDict)
         jsonschema.validate(self._json, get_schema_dict())
 
@@ -104,14 +99,12 @@ class TorrentRSS:
 
     def check_feeds(self) -> None:
         for feed in self.feeds.values():
-            if not feed.enabled:
-                continue
-            for sub, entry, number in feed.matching_subs():
+            for sub, entry in feed.matching_subs():
                 path_or_url = feed.download_entry(entry, sub.directory)
                 sub.command(path_or_url)
 
-    def save_episode_numbers(self) -> None:
-        logging.info("Writing episode numbers to '%s'", CONFIG_PATH)
+    def save_episode_numbers(self, file: Optional[TextIO]=None) -> None:
+        logging.info('Writing episode numbers')
         json_feeds = self._json['feeds']
         for feed_name, feed in self.feeds.items():
             json_subs = json_feeds[feed_name]['subscriptions']
@@ -119,9 +112,14 @@ class TorrentRSS:
                 sub_dict = json_subs[sub_name]
                 if sub.number.series is not None:
                     sub_dict['series_number'] = sub.number.series
-                sub_dict['episode_number'] = sub.number.episode
-        with open(CONFIG_PATH, mode='w', encoding='utf-8') as file:
-            json.dump(self._json, file, indent=4)
+                if sub.number.episode is not None:
+                    sub_dict['episode_number'] = sub.number.episode
+        text = json.dumps(self._json, indent=4)
+        if file is None:
+            with open(self.path, mode='w', encoding='utf-8') as file:
+                file.write(text)
+        else:
+            file.write(text)
 
 
 class Command:
@@ -173,8 +171,6 @@ class Command:
 
 
 class Feed:
-    _enabled: bool
-
     config: TorrentRSS
     subscriptions: Dict[str, 'Subscription']
     name: str
@@ -185,10 +181,8 @@ class Feed:
 
     def __init__(self, config: TorrentRSS, name: str, url: str,
                  subscriptions: Json, user_agent: Optional[str]=None,
-                 enabled: bool=True, prefer_torrent_url: bool=True,
+                 prefer_torrent_url: bool=True,
                  hide_torrent_filename: bool=True) -> None:
-        self._enabled = False
-
         self.config = config
         self.name = name
         self.url = url
@@ -197,25 +191,19 @@ class Feed:
             for name, sub_dict in subscriptions.items()
         )
         self.user_agent = user_agent
-        self.enabled = enabled
         self.prefer_torrent_url = prefer_torrent_url
         self.hide_torrent_filename = hide_torrent_filename
 
     def __repr__(self):
-        return (f'{self.__class__.__name__}(enabled={self.enabled}, '
-                f'name={self.name}, url={self.url})')
+        return f'{self.__class__.__name__}(name={self.name!r}, url={self.url!r})'
 
     @property
-    def enabled(self) -> bool:
-        return self._enabled and any(sub.enabled for sub in
-                                     self.subscriptions.values())
-
-    @enabled.setter
-    def enabled(self, value: bool) -> None:
-        self._enabled = value
+    def headers(self) -> Dict[str, str]:
+        return ({} if self.user_agent is None else
+                {'User-Agent': self.user_agent})
 
     def fetch(self) -> FeedParserDict:
-        rss = feedparser.parse(self.url)
+        rss = feedparser.parse(self.url, request_headers=self.headers)
         if rss['bozo']:
             raise FeedError(f'Feed {self.name!r}: error parsing '
                             f'url {self.url!r}') \
@@ -223,30 +211,36 @@ class Feed:
         logging.info('Feed %r: downloaded url %r', self.name, self.url)
         return rss
 
-    def matching_subs(self) -> Iterator[Tuple['Subscription',
-                                              FeedParserDict,
-                                              'EpisodeNumber']]:
+    def matching_subs(self) -> Iterator[Tuple['Subscription', FeedParserDict]]:
+        if not self.subscriptions:
+            return
+
         rss = self.fetch()
+        # episode numbers are compared against subscriptions' numbers as they
+        # were at the beginning of the method rather than comparing to the most
+        # recent match. this ensures that all matches in the feed are yielded
+        # regardless of whether they are in numeric order.
+        original_numbers = {sub: sub.number for sub in
+                            self.subscriptions.values()}
+
         for index, entry in enumerate(reversed(rss['entries'])):
             index = len(rss['entries']) - index - 1
             for sub in self.subscriptions.values():
-                if not sub.enabled:
-                    continue
                 match = sub.regex.search(entry['title'])
                 if match:
                     number = EpisodeNumber.from_regex_match(match)
-                    if number > sub.number:
+                    if number > original_numbers[sub]:
                         logging.info('MATCH: entry %s %r has greater number '
                                      'than sub %r: %s > %s',
                                      index, entry['title'], sub.name,
-                                     number, sub.number)
+                                     number, original_numbers[sub])
                         sub.number = number
-                        yield sub, entry, number
+                        yield sub, entry
                     else:
                         logging.debug('NO MATCH: entry %s %r matches but '
                                       'number less than or equal to sub %r: '
                                       '%s <= %s', index, entry['title'],
-                                      sub.name, number, sub.number)
+                                      sub.name, number, original_numbers[sub])
                 else:
                     logging.debug('NO MATCH: entry %s %r against sub %r',
                                   index, entry['title'], sub.name)
@@ -266,11 +260,9 @@ class Feed:
 
     def download_entry_torrent_file(self, url: str, title: str,
                                     directory: Path) -> Path:
-        headers = ({} if self.user_agent is None else
-                   {'User-Agent': self.user_agent})
         logging.debug('Feed %r: sending GET request to %r with headers %s',
-                      self.name, url, headers)
-        response = requests.get(url, headers=headers)
+                      self.name, url, self.headers)
+        response = requests.get(url, headers=self.headers)
         logging.debug("Feed %r: response status code is %s, 'ok' is %s",
                       self.name, response.status_code, response.ok)
         response.raise_for_status()
@@ -323,13 +315,14 @@ class EpisodeNumber(_EpisodeNumberBase):
         )
 
     def __gt__(self, other: Tuple) -> bool:
-        series, episode = other
         if self.episode is None:
             return False
-        return episode is None \
-            or (self.series is not None and series is not None
-                and self.series > series) \
-            or self.episode > episode
+        series, episode = other
+        if episode is None:
+            return True
+        if self.series is not None and series is not None and self.series != series:
+            return self.series > series
+        return self.episode > episode
 
 
 class Subscription:
@@ -337,15 +330,13 @@ class Subscription:
     name: str
     regex: Pattern
     number: EpisodeNumber
-    enabled: bool
 
     def __init__(self, feed: Feed, name: str, pattern: str,
                  series_number: Optional[int]=None,
                  episode_number: Optional[int]=None,
                  directory: Optional[str]=None,
                  command: Optional[List[str]]=None,
-                 use_shell_for_command: bool=False,
-                 enabled: bool=True) -> None:
+                 use_shell_for_command: bool=False) -> None:
         self._directory = self._command = None
 
         self.feed = feed
@@ -369,11 +360,9 @@ class Subscription:
         self.command = (feed.config.default_command
                         if command is None else
                         Command(command, use_shell_for_command))
-        self.enabled = enabled
 
     def __repr__(self):
-        return (f'{self.__class__.__name__}(enabled={self.enabled}, '
-                f'name={self.name}, feed={self.feed.name})')
+        return f'{self.__class__.__name__}name={self.name!r}, feed={self.feed.name!r})'
 
 
 def configure_logging(level: Optional[str]=None) -> None:
@@ -394,12 +383,13 @@ def print_schema(context: click.Context, parameter: click.Parameter,
 
 
 @click.command()
-@click.option('--logging-level', default='DEBUG', show_default=True,
+@click.option('-l', '--logging-level', default='DEBUG', show_default=True,
               type=click.Choice(['DISABLE', 'DEBUG', 'INFO',
                                  'WARNING', 'ERROR', 'CRITICAL']))
-@click.option('--print-config-schema', is_flag=True, is_eager=True,
+@click.option('-p', '--print-config-schema', is_flag=True, is_eager=True,
               expose_value=False, callback=print_schema)
-@click.version_option(VERSION)
+@click.help_option('-h', '--help')
+@click.version_option(VERSION, '-v', '--version', message='%(version)s')
 def main(logging_level: str) -> None:
     configure_logging(level=logging_level)
 
@@ -414,6 +404,7 @@ def main(logging_level: str) -> None:
         config.save_episode_numbers()
     except Exception as error:
         logging.exception(error.__class__.__name__)
+        show_exception_gui(error)
         raise
     finally:
         logging.shutdown()

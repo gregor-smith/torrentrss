@@ -28,10 +28,6 @@
                 ".+": {
                     "type": "object",
                     "properties": {
-                        "enabled": {
-                            "description": "Defaults to true",
-                            "type": "boolean"
-                        },
                         "url": {
                             "description": "The URL of the RSS feed.",
                             "type": "string"
@@ -54,10 +50,6 @@
                                 ".+": {
                                     "type": "object",
                                     "properties": {
-                                        "enabled": {
-                                            "description": "Defaults to true",
-                                            "type": "boolean"
-                                        },
                                         "pattern": {
                                             "description": "A regular expression to match the torrents you want from the RSS feed. Must have a group to capture the episode number, like so: (?P<episode>[0-9]{2}). The series number may also be captured with the 'series' group. Because the config is a JSON file, double backslashes are required.",
                                             "type": "string"
