@@ -1,0 +1,45 @@
+{
+    "feeds": {
+        "Test feed 1": {
+            "url": "https://test.com/rss",
+            "subscriptions": {
+                "Disabled sub": {
+                    "pattern": "disabled (?P<episode>[0-9]+)",
+                    "enabled": false
+                },
+                "Test sub 1": {
+                    "pattern": "Test Show 1 S(?P<series>[0-9]{2})E(?P<episode>[0-9]{2})",
+                    "series_number": 9,
+                    "episode_number": 9
+                },
+                "Test sub 2": {
+                    "pattern": "Test Show 2 S(?P<series>[0-9]{2})E(?P<episode>[0-9]{2})"
+                }
+            }
+        },
+        "Test feed 2": {
+            "url": "https://test.com/rss2",
+            "subscriptions": {
+                "Test sub 3": {
+                    "pattern": "Test Show 3 S(?P<series>[0-9]{2})E(?P<episode>[0-9]{2})",
+                    "series_number": 10,
+                    "episode_number": 10
+                },
+                "Test sub 4": {
+                    "pattern": "Test Show 4 S(?P<series>[0-9]{2})E(?P<episode>[0-9]{2})",
+                    "series_number": 99,
+                    "episode_number": 99
+                }
+            }
+        },
+        "Disabled feed": {
+            "url": "disabled",
+            "subscriptions": {},
+            "enabled": false
+        },
+        "Enabled feed without subs": {
+            "url": "disabled",
+            "subscriptions": {}
+        }
+    }
+}
