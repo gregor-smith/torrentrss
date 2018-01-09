@@ -16,8 +16,9 @@ I've always found the builtin RSS support to be lackluster in every torrent clie
 ### Requirements
 Python 3.6 or newer, and the following packages:
 
-* click
-* easygui
-* requests
-* feedparser
-* jsonschema
+* `click`
+* `requests`
+* `feedparser`
+* `jsonschema`
+
+For error messages to appear as a GUI, either have the `easygui` package available or `notify-send` on the `$PATH`.

@@ -18,13 +18,11 @@ setuptools.setup(
     package_data={'torrentrss': ['config_schema.json']},
     entry_points={'console_scripts': ['torrentrss=torrentrss:main']},
     platforms='any',
-    install_requires=['click', 'easygui', 'requests',
-                      'feedparser', 'jsonschema'],
+    install_requires=['click', 'requests', 'feedparser', 'jsonschema'],
     classifiers=['Development Status :: 3 - Alpha',
                  'License :: OSI Approved :: MIT License',
                  'Operating System :: OS Independent',
                  'Programming Language :: Python :: 3',
                  'Programming Language :: Python :: 3.6',
-                 'Topic :: Utilities'],
-    test_suite='tests'
+                 'Topic :: Utilities']
 )
