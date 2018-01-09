@@ -1,13 +1,16 @@
+import io
 import re
+import json
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock, ANY
+from unittest.mock import patch, MagicMock, ANY, call
 
 import pytest
 import feedparser
 
 from torrentrss import (TorrentRSS, Command, Feed, Subscription,
-                        EpisodeNumber, ConfigError, FeedError)
+                        EpisodeNumber, ConfigError, FeedError,
+                        WINDOWS, TEMPORARY_DIRECTORY)
 
 PATH = '/home/test/テスト'
 NAME = 'test name'
@@ -35,7 +38,9 @@ class TestEpisodeNumber:
         assert EpisodeNumber(None, 1) > EpisodeNumber(None, None)
         assert EpisodeNumber(None, 2) > EpisodeNumber(None, 1)
         assert EpisodeNumber(1, 1) > EpisodeNumber(None, None)
+        assert not EpisodeNumber(None, None) > EpisodeNumber(1, 1)
         assert EpisodeNumber(2, 1) > EpisodeNumber(1, 2)
+        assert not EpisodeNumber(1, 2) > EpisodeNumber(2, 1)
 
     def test_from_regex(self):
         match = re.search(
@@ -67,7 +72,6 @@ class TestSubscription:
         assert sub.directory == Path(directory)
         assert sub.command.arguments == command
         assert not sub.command.shell
-        assert sub.enabled
 
     def test_uses_config_default_properties(self):
         default_directory = Path(PATH)
@@ -88,8 +92,7 @@ class TestSubscription:
 
 class TestFeed(unittest.TestCase):
     def setUp(self):
-        with open('./testconfig.json', encoding='utf-8') as file:
-            self.config = TorrentRSS(file)
+        self.config = TorrentRSS(Path('./testconfig.json'))
         self.feed = self.config.feeds['Test feed 1']
         with open('./testfeed.xml', encoding='utf-8') as file:
             self.rss = feedparser.parse(file.read())
@@ -100,10 +103,8 @@ class TestFeed(unittest.TestCase):
         assert self.feed.name == 'Test feed 1'
         assert self.feed.url == 'https://test.com/rss'
         assert self.feed.user_agent is None
-        assert self.feed.enabled
         assert self.feed.prefer_torrent_url
         assert self.feed.hide_torrent_filename
-        assert 'Disabled sub' in self.feed.subscriptions
         assert 'Test sub 1' in self.feed.subscriptions
         assert 'Test sub 2' in self.feed.subscriptions
 
@@ -114,38 +115,30 @@ class TestFeed(unittest.TestCase):
         sub1 = self.feed.subscriptions['Test sub 1']
         sub2 = self.feed.subscriptions['Test sub 2']
         assert matches == [
-            (sub2, self.rss.entries[48], EpisodeNumber(10, 4)),
-            (sub1, self.rss.entries[46], EpisodeNumber(9, 10)),
-            (sub1, self.rss.entries[41], EpisodeNumber(10, 1)),
-            (sub2, self.rss.entries[37], EpisodeNumber(10, 5)),
-            (sub1, self.rss.entries[31], EpisodeNumber(10, 2)),
-            (sub1, self.rss.entries[30], EpisodeNumber(10, 3)),
-            (sub2, self.rss.entries[24], EpisodeNumber(10, 6)),
-            (sub2, self.rss.entries[20], EpisodeNumber(10, 7)),
-            (sub1, self.rss.entries[19], EpisodeNumber(10, 4)),
-            (sub2, self.rss.entries[18], EpisodeNumber(10, 8)),
-            (sub1, self.rss.entries[17], EpisodeNumber(10, 5)),
-            (sub1, self.rss.entries[16], EpisodeNumber(10, 6)),
-            (sub1, self.rss.entries[15], EpisodeNumber(10, 7)),
-            (sub1, self.rss.entries[14], EpisodeNumber(10, 8)),
-            (sub1, self.rss.entries[13], EpisodeNumber(10, 9)),
-            (sub1, self.rss.entries[11], EpisodeNumber(10, 10)),
-            (sub2, self.rss.entries[10], EpisodeNumber(10, 9)),
-            (sub2, self.rss.entries[9], EpisodeNumber(10, 10)),
+            (sub2, self.rss.entries[14]),
+            (sub1, self.rss.entries[13]),
+            (sub1, self.rss.entries[12]),
+            (sub2, self.rss.entries[11]),
+            (sub2, self.rss.entries[10]),
+            (sub2, self.rss.entries[6]),
+            (sub2, self.rss.entries[4]),
+            (sub2, self.rss.entries[3]),
+            (sub1, self.rss.entries[2]),
+            (sub1, self.rss.entries[0]),
         ]
-        assert sub1.number == sub2.number == EpisodeNumber(10, 10)
+        assert sub1.number == sub2.number == EpisodeNumber(3, 5)
 
     def test_torrent_url_for_entry_with_link_only(self):
         result = self.feed.torrent_url_for_entry(self.rss.entries[0])
-        assert result == 'https://test.rss/49.torrent'
+        assert result == 'https://test.rss/20.torrent'
 
     def test_torrent_url_for_entry_with_torrent_enclosure(self):
         result = self.feed.torrent_url_for_entry(self.rss.entries[1])
-        assert result == 'https://test.rss/48.torrent'
+        assert result == 'https://test.rss/19.torrent'
 
     def test_torrent_url_for_entry_with_non_torrent_enclosure(self):
         result = self.feed.torrent_url_for_entry(self.rss.entries[2])
-        assert result == 'https://test.rss/47.torrent'
+        assert result == 'https://test.rss/18.torrent'
 
     @patch.object(Path, 'write_bytes')
     @patch.object(Path, 'mkdir')
@@ -224,3 +217,73 @@ class TestFeed(unittest.TestCase):
         self.feed.prefer_torrent_url = False
         with pytest.raises(FeedError):
             self.feed.download_entry(self.entry, Path(PATH))
+
+
+class TestTorrentRSS(unittest.TestCase):
+    def setUp(self):
+        self.config = TorrentRSS(Path('./testconfig.json'))
+        with open('./testfeed.xml', encoding='utf-8') as file:
+            self.rss = feedparser.parse(file.read())
+
+    def test_properties(self):
+        assert self.config.default_directory == TEMPORARY_DIRECTORY
+        assert self.config.default_command.arguments is None
+        assert not self.config.default_command.shell
+        assert self.config.replace_windows_forbidden_characters == WINDOWS
+        assert 'Test feed 1' in self.config.feeds
+        assert 'Test feed 2' in self.config.feeds
+
+    def test_check_feeds(self):
+        with patch.object(Feed, 'fetch', return_value=self.rss),  \
+                patch.object(Command, '__call__') as command:
+            self.config.check_feeds()
+
+        expected = [
+            call('https://test.rss/6.torrent'),
+            call('https://test.rss/7.torrent'),
+            call('https://test.rss/8.torrent'),
+            call('https://test.rss/9.torrent'),
+            call('https://test.rss/10.torrent'),
+            call('https://test.rss/14.torrent'),
+            call('https://test.rss/16.torrent'),
+            call('https://test.rss/17.torrent'),
+            call('https://test.rss/18.torrent'),
+            call('https://test.rss/20.torrent'),
+            call('https://test.rss/16.torrent'),
+            call('https://test.rss/17.torrent'),
+        ]
+        assert command.call_args_list == expected
+
+    def test_save_episode_numbers(self):
+        with patch.object(Feed, 'fetch', return_value=self.rss),  \
+                patch.object(Command, '__call__'):
+            self.config.check_feeds()
+
+        feed1 = self.config.feeds['Test feed 1'].subscriptions
+        feed2 = self.config.feeds['Test feed 2'].subscriptions
+        assert feed1['Test sub 1'].number == EpisodeNumber(3, 5)
+        assert feed1['Test sub 2'].number == EpisodeNumber(3, 5)
+        assert feed2['Sub at current episode'].number == EpisodeNumber(3, 5)
+        assert feed2['Sub at greater episode'].number == EpisodeNumber(99, 99)
+        assert feed2['Test sub 3'].number == EpisodeNumber(3, 5)
+        assert feed2['Sub matching nothing'].number == EpisodeNumber(None, None)
+
+        with io.StringIO() as file:
+            self.config.save_episode_numbers(file)
+            file.seek(io.SEEK_SET)
+            json_dict = json.load(file)
+
+        feed1 = json_dict['feeds']['Test feed 1']['subscriptions']
+        feed2 = json_dict['feeds']['Test feed 2']['subscriptions']
+        assert feed1['Test sub 1']['series_number'] == 3
+        assert feed1['Test sub 1']['episode_number'] == 5
+        assert feed1['Test sub 2']['series_number'] == 3
+        assert feed1['Test sub 2']['episode_number'] == 5
+        assert feed2['Sub at current episode']['series_number'] == 3
+        assert feed2['Sub at current episode']['episode_number'] == 5
+        assert feed2['Sub at greater episode']['series_number'] == 99
+        assert feed2['Sub at greater episode']['episode_number'] == 99
+        assert feed2['Test sub 3']['series_number'] == 3
+        assert feed2['Test sub 3']['episode_number'] == 5
+        assert 'series_number' not in feed2['Sub matching nothing']
+        assert 'episode_number' not in feed2['Sub matching nothing']
