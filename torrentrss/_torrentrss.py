@@ -22,7 +22,7 @@ import pkg_resources
 from feedparser import FeedParserDict
 
 NAME = 'torrentrss'
-VERSION = '0.5.3'
+VERSION = '0.6'
 WINDOWS = os.name == 'nt'
 CONFIG_DIRECTORY = Path(click.get_app_dir(NAME))
 CONFIG_PATH = Path(CONFIG_DIRECTORY, 'config.json')
