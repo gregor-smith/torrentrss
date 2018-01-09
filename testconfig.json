@@ -3,14 +3,10 @@
         "Test feed 1": {
             "url": "https://test.com/rss",
             "subscriptions": {
-                "Disabled sub": {
-                    "pattern": "disabled (?P<episode>[0-9]+)",
-                    "enabled": false
-                },
                 "Test sub 1": {
                     "pattern": "Test Show 1 S(?P<series>[0-9]{2})E(?P<episode>[0-9]{2})",
-                    "series_number": 9,
-                    "episode_number": 9
+                    "series_number": 3,
+                    "episode_number": 1
                 },
                 "Test sub 2": {
                     "pattern": "Test Show 2 S(?P<series>[0-9]{2})E(?P<episode>[0-9]{2})"
@@ -20,24 +16,27 @@
         "Test feed 2": {
             "url": "https://test.com/rss2",
             "subscriptions": {
-                "Test sub 3": {
-                    "pattern": "Test Show 3 S(?P<series>[0-9]{2})E(?P<episode>[0-9]{2})",
-                    "series_number": 10,
-                    "episode_number": 10
+                "Sub at current episode": {
+                    "pattern": "Test Show 1 S(?P<series>[0-9]{2})E(?P<episode>[0-9]{2})",
+                    "series_number": 3,
+                    "episode_number": 5
                 },
-                "Test sub 4": {
-                    "pattern": "Test Show 4 S(?P<series>[0-9]{2})E(?P<episode>[0-9]{2})",
+                "Sub at greater episode": {
+                    "pattern": "Test Show 1 S(?P<series>[0-9]{2})E(?P<episode>[0-9]{2})",
                     "series_number": 99,
                     "episode_number": 99
+                },
+                "Test sub 3": {
+                    "pattern": "Test Show 2 S(?P<series>[0-9]{2})E(?P<episode>[0-9]{2})",
+                    "series_number": 3,
+                    "episode_number": 3
+                },
+                "Sub matching nothing": {
+                    "pattern": "Invalid pattern (?P<episode>.)"
                 }
             }
         },
-        "Disabled feed": {
-            "url": "disabled",
-            "subscriptions": {},
-            "enabled": false
-        },
-        "Enabled feed without subs": {
+        "Feed without subs": {
             "url": "disabled",
             "subscriptions": {}
         }

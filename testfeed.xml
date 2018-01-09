@@ -5,348 +5,143 @@
 		<link>https://test.rss/</link>
 		<atom:link href="https://test.rss/" rel="self" type="application/rss+xml"/>
 		<item>
-			<title>Test Show 3 S10E10.mkv</title>
-			<link>https://test.rss/49.torrent</link>
-			<guid isPermaLink="true">https://test.rss/49</guid>
-			<pubDate>Tue, 09 Jan 2018 01:34:03 +0000</pubDate>
-			<description>Description 49</description>
-		</item>
-		<item>
-			<title>Test Show 3 S10E09.mkv</title>
-			<link>https://test.rss/non-torrent-link</link>
-			<enclosure url="https://test.rss/48.torrent" length="1" type="application/x-bittorrent"></enclosure>
-			<guid isPermaLink="true">https://test.rss/48</guid>
-			<pubDate>Tue, 09 Jan 2018 01:33:03 +0000</pubDate>
-			<description>Description 48</description>
-		</item>
-		<item>
-			<title>Test Show 4 S10E10.mkv</title>
-			<link>https://test.rss/47.torrent</link>
-			<enclosure url="https://test.rss/non-torrent-enclosure" length="1" type="text/html"></enclosure>
-			<guid isPermaLink="true">https://test.rss/47</guid>
-			<pubDate>Tue, 09 Jan 2018 01:32:03 +0000</pubDate>
-			<description>Description 47</description>
-		</item>
-		<item>
-			<title>Test Show 3 S10E08.mkv</title>
-			<link>https://test.rss/46.torrent</link>
-			<guid isPermaLink="true">https://test.rss/46</guid>
-			<pubDate>Tue, 09 Jan 2018 01:31:03 +0000</pubDate>
-			<description>Description 46</description>
-		</item>
-		<item>
-			<title>Test Show 3 S10E07.mkv</title>
-			<link>https://test.rss/45.torrent</link>
-			<guid isPermaLink="true">https://test.rss/45</guid>
-			<pubDate>Tue, 09 Jan 2018 01:30:03 +0000</pubDate>
-			<description>Description 45</description>
-		</item>
-		<item>
-			<title>Test Show 4 S10E09.mkv</title>
-			<link>https://test.rss/44.torrent</link>
-			<guid isPermaLink="true">https://test.rss/44</guid>
-			<pubDate>Tue, 09 Jan 2018 01:29:03 +0000</pubDate>
-			<description>Description 44</description>
-		</item>
-		<item>
-			<title>Test Show 4 S10E08.mkv</title>
-			<link>https://test.rss/43.torrent</link>
-			<guid isPermaLink="true">https://test.rss/43</guid>
-			<pubDate>Tue, 09 Jan 2018 01:28:03 +0000</pubDate>
-			<description>Description 43</description>
-		</item>
-		<item>
-			<title>Test Show 4 S10E07.mkv</title>
-			<link>https://test.rss/42.torrent</link>
-			<guid isPermaLink="true">https://test.rss/42</guid>
-			<pubDate>Tue, 09 Jan 2018 01:27:03 +0000</pubDate>
-			<description>Description 42</description>
-		</item>
-		<item>
-			<title>Test Show 4 S10E06.mkv</title>
-			<link>https://test.rss/41.torrent</link>
-			<guid isPermaLink="true">https://test.rss/41</guid>
-			<pubDate>Tue, 09 Jan 2018 01:26:03 +0000</pubDate>
-			<description>Description 41</description>
-		</item>
-		<item>
-			<title>Test Show 2 S10E10.mkv</title>
-			<link>https://test.rss/40.torrent</link>
-			<guid isPermaLink="true">https://test.rss/40</guid>
-			<pubDate>Tue, 09 Jan 2018 01:25:03 +0000</pubDate>
-			<description>Description 40</description>
-		</item>
-		<item>
-			<title>Test Show 2 S10E09.mkv</title>
-			<link>https://test.rss/39.torrent</link>
-			<guid isPermaLink="true">https://test.rss/39</guid>
-			<pubDate>Tue, 09 Jan 2018 01:24:03 +0000</pubDate>
-			<description>Description 39</description>
-		</item>
-		<item>
-			<title>Test Show 1 S10E10.mkv</title>
-			<link>https://test.rss/38.torrent</link>
-			<guid isPermaLink="true">https://test.rss/38</guid>
-			<pubDate>Tue, 09 Jan 2018 01:23:03 +0000</pubDate>
-			<description>Description 38</description>
-		</item>
-		<item>
-			<title>Test Show 4 S10E05.mkv</title>
-			<link>https://test.rss/37.torrent</link>
-			<guid isPermaLink="true">https://test.rss/37</guid>
-			<pubDate>Tue, 09 Jan 2018 01:22:03 +0000</pubDate>
-			<description>Description 37</description>
-		</item>
-		<item>
-			<title>Test Show 1 S10E09.mkv</title>
-			<link>https://test.rss/36.torrent</link>
-			<guid isPermaLink="true">https://test.rss/36</guid>
-			<pubDate>Tue, 09 Jan 2018 01:21:03 +0000</pubDate>
-			<description>Description 36</description>
-		</item>
-		<item>
-			<title>Test Show 1 S10E08.mkv</title>
-			<link>https://test.rss/35.torrent</link>
-			<guid isPermaLink="true">https://test.rss/35</guid>
-			<pubDate>Tue, 09 Jan 2018 01:20:03 +0000</pubDate>
-			<description>Description 35</description>
-		</item>
-		<item>
-			<title>Test Show 1 S10E07.mkv</title>
-			<link>https://test.rss/34.torrent</link>
-			<guid isPermaLink="true">https://test.rss/34</guid>
-			<pubDate>Tue, 09 Jan 2018 01:19:03 +0000</pubDate>
-			<description>Description 34</description>
-		</item>
-		<item>
-			<title>Test Show 1 S10E06.mkv</title>
-			<link>https://test.rss/33.torrent</link>
-			<guid isPermaLink="true">https://test.rss/33</guid>
-			<pubDate>Tue, 09 Jan 2018 01:18:03 +0000</pubDate>
-			<description>Description 33</description>
-		</item>
-		<item>
-			<title>Test Show 1 S10E05.mkv</title>
-			<link>https://test.rss/32.torrent</link>
-			<guid isPermaLink="true">https://test.rss/32</guid>
-			<pubDate>Tue, 09 Jan 2018 01:17:03 +0000</pubDate>
-			<description>Description 32</description>
-		</item>
-		<item>
-			<title>Test Show 2 S10E08.mkv</title>
-			<link>https://test.rss/31.torrent</link>
-			<guid isPermaLink="true">https://test.rss/31</guid>
-			<pubDate>Tue, 09 Jan 2018 01:16:03 +0000</pubDate>
-			<description>Description 31</description>
-		</item>
-		<item>
-			<title>Test Show 1 S10E04.mkv</title>
-			<link>https://test.rss/30.torrent</link>
-			<guid isPermaLink="true">https://test.rss/30</guid>
-			<pubDate>Tue, 09 Jan 2018 01:15:03 +0000</pubDate>
-			<description>Description 30</description>
-		</item>
-		<item>
-			<title>Test Show 2 S10E07.mkv</title>
-			<link>https://test.rss/29.torrent</link>
-			<guid isPermaLink="true">https://test.rss/29</guid>
-			<pubDate>Tue, 09 Jan 2018 01:14:03 +0000</pubDate>
-			<description>Description 29</description>
-		</item>
-		<item>
-			<title>Test Show 3 S10E06.mkv</title>
-			<link>https://test.rss/28.torrent</link>
-			<guid isPermaLink="true">https://test.rss/28</guid>
-			<pubDate>Tue, 09 Jan 2018 01:13:03 +0000</pubDate>
-			<description>Description 28</description>
-		</item>
-		<item>
-			<title>Test Show 4 S10E04.mkv</title>
-			<link>https://test.rss/27.torrent</link>
-			<guid isPermaLink="true">https://test.rss/27</guid>
-			<pubDate>Tue, 09 Jan 2018 01:12:03 +0000</pubDate>
-			<description>Description 27</description>
-		</item>
-		<item>
-			<title>Test Show 4 S10E03.mkv</title>
-			<link>https://test.rss/26.torrent</link>
-			<guid isPermaLink="true">https://test.rss/26</guid>
-			<pubDate>Tue, 09 Jan 2018 01:11:03 +0000</pubDate>
-			<description>Description 26</description>
-		</item>
-		<item>
-			<title>Test Show 2 S10E06.mkv</title>
-			<link>https://test.rss/25.torrent</link>
-			<guid isPermaLink="true">https://test.rss/25</guid>
-			<pubDate>Tue, 09 Jan 2018 01:10:03 +0000</pubDate>
-			<description>Description 25</description>
-		</item>
-		<item>
-			<title>Test Show 3 S10E05.mkv</title>
-			<link>https://test.rss/24.torrent</link>
-			<guid isPermaLink="true">https://test.rss/24</guid>
-			<pubDate>Tue, 09 Jan 2018 01:09:03 +0000</pubDate>
-			<description>Description 24</description>
-		</item>
-		<item>
-			<title>Test Show 4 S10E02.mkv</title>
-			<link>https://test.rss/23.torrent</link>
-			<guid isPermaLink="true">https://test.rss/23</guid>
-			<pubDate>Tue, 09 Jan 2018 01:08:03 +0000</pubDate>
-			<description>Description 23</description>
-		</item>
-		<item>
-			<title>Test Show 4 S10E01.mkv</title>
-			<link>https://test.rss/22.torrent</link>
-			<guid isPermaLink="true">https://test.rss/22</guid>
-			<pubDate>Tue, 09 Jan 2018 01:07:03 +0000</pubDate>
-			<description>Description 22</description>
-		</item>
-		<item>
-			<title>Test Show 4 S09E10.mkv</title>
-			<link>https://test.rss/21.torrent</link>
-			<guid isPermaLink="true">https://test.rss/21</guid>
-			<pubDate>Tue, 09 Jan 2018 01:06:03 +0000</pubDate>
-			<description>Description 21</description>
-		</item>
-		<item>
-			<title>Test Show 4 S09E09.mkv</title>
+			<title>Test Show 1 S03E05.mkv</title>
 			<link>https://test.rss/20.torrent</link>
 			<guid isPermaLink="true">https://test.rss/20</guid>
-			<pubDate>Tue, 09 Jan 2018 01:05:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:26:54 +0000</pubDate>
 			<description>Description 20</description>
 		</item>
 		<item>
-			<title>Test Show 1 S10E03.mkv</title>
+			<title>Test Show 3 S03E05.mkv</title>
 			<link>https://test.rss/19.torrent</link>
 			<guid isPermaLink="true">https://test.rss/19</guid>
-			<pubDate>Tue, 09 Jan 2018 01:04:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:25:54 +0000</pubDate>
 			<description>Description 19</description>
 		</item>
 		<item>
-			<title>Test Show 1 S10E02.mkv</title>
+			<title>Test Show 1 S03E04.mkv</title>
 			<link>https://test.rss/18.torrent</link>
 			<guid isPermaLink="true">https://test.rss/18</guid>
-			<pubDate>Tue, 09 Jan 2018 01:03:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:24:54 +0000</pubDate>
 			<description>Description 18</description>
 		</item>
 		<item>
-			<title>Test Show 4 S09E08.mkv</title>
+			<title>Test Show 2 S03E05.mkv</title>
 			<link>https://test.rss/17.torrent</link>
 			<guid isPermaLink="true">https://test.rss/17</guid>
-			<pubDate>Tue, 09 Jan 2018 01:02:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:23:54 +0000</pubDate>
 			<description>Description 17</description>
 		</item>
 		<item>
-			<title>Test Show 4 S09E07.mkv</title>
+			<title>Test Show 2 S03E04.mkv</title>
 			<link>https://test.rss/16.torrent</link>
 			<guid isPermaLink="true">https://test.rss/16</guid>
-			<pubDate>Tue, 09 Jan 2018 01:01:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:22:54 +0000</pubDate>
 			<description>Description 16</description>
 		</item>
 		<item>
-			<title>Test Show 4 S09E06.mkv</title>
+			<title>Test Show 3 S03E04.mkv</title>
 			<link>https://test.rss/15.torrent</link>
 			<guid isPermaLink="true">https://test.rss/15</guid>
-			<pubDate>Tue, 09 Jan 2018 01:00:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:21:54 +0000</pubDate>
 			<description>Description 15</description>
 		</item>
 		<item>
-			<title>Test Show 3 S10E04.mkv</title>
+			<title>Test Show 2 S03E03.mkv</title>
 			<link>https://test.rss/14.torrent</link>
 			<guid isPermaLink="true">https://test.rss/14</guid>
-			<pubDate>Tue, 09 Jan 2018 00:59:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:20:54 +0000</pubDate>
 			<description>Description 14</description>
 		</item>
 		<item>
-			<title>Test Show 3 S10E03.mkv</title>
+			<title>Test Show 3 S03E03.mkv</title>
 			<link>https://test.rss/13.torrent</link>
 			<guid isPermaLink="true">https://test.rss/13</guid>
-			<pubDate>Tue, 09 Jan 2018 00:58:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:19:54 +0000</pubDate>
 			<description>Description 13</description>
 		</item>
 		<item>
-			<title>Test Show 2 S10E05.mkv</title>
+			<title>Test Show 3 S03E02.mkv</title>
 			<link>https://test.rss/12.torrent</link>
 			<guid isPermaLink="true">https://test.rss/12</guid>
-			<pubDate>Tue, 09 Jan 2018 00:57:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:18:54 +0000</pubDate>
 			<description>Description 12</description>
 		</item>
 		<item>
-			<title>Test Show 3 S10E02.mkv</title>
+			<title>Test Show 3 S03E01.mkv</title>
 			<link>https://test.rss/11.torrent</link>
 			<guid isPermaLink="true">https://test.rss/11</guid>
-			<pubDate>Tue, 09 Jan 2018 00:56:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:17:54 +0000</pubDate>
 			<description>Description 11</description>
 		</item>
 		<item>
-			<title>Test Show 4 S09E05.mkv</title>
+			<title>Test Show 2 S03E02.mkv</title>
 			<link>https://test.rss/10.torrent</link>
 			<guid isPermaLink="true">https://test.rss/10</guid>
-			<pubDate>Tue, 09 Jan 2018 00:55:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:16:54 +0000</pubDate>
 			<description>Description 10</description>
 		</item>
 		<item>
-			<title>Test Show 3 S10E01.mkv</title>
+			<title>Test Show 2 S03E01.mkv</title>
 			<link>https://test.rss/9.torrent</link>
 			<guid isPermaLink="true">https://test.rss/9</guid>
-			<pubDate>Tue, 09 Jan 2018 00:54:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:15:54 +0000</pubDate>
 			<description>Description 9</description>
 		</item>
 		<item>
-			<title>Test Show 1 S10E01.mkv</title>
+			<title>Test Show 1 S03E03.mkv</title>
 			<link>https://test.rss/8.torrent</link>
 			<guid isPermaLink="true">https://test.rss/8</guid>
-			<pubDate>Tue, 09 Jan 2018 00:53:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:14:54 +0000</pubDate>
 			<description>Description 8</description>
 		</item>
 		<item>
-			<title>Test Show 4 S09E04.mkv</title>
+			<title>Test Show 1 S03E02.mkv</title>
 			<link>https://test.rss/7.torrent</link>
 			<guid isPermaLink="true">https://test.rss/7</guid>
-			<pubDate>Tue, 09 Jan 2018 00:52:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:13:54 +0000</pubDate>
 			<description>Description 7</description>
 		</item>
 		<item>
-			<title>Test Show 3 S09E10.mkv</title>
+			<title>Test Show 2 S02E05.mkv</title>
 			<link>https://test.rss/6.torrent</link>
 			<guid isPermaLink="true">https://test.rss/6</guid>
-			<pubDate>Tue, 09 Jan 2018 00:51:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:12:54 +0000</pubDate>
 			<description>Description 6</description>
 		</item>
 		<item>
-			<title>Test Show 4 S09E03.mkv</title>
+			<title>Test Show 3 S02E05.mkv</title>
 			<link>https://test.rss/5.torrent</link>
 			<guid isPermaLink="true">https://test.rss/5</guid>
-			<pubDate>Tue, 09 Jan 2018 00:50:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:11:54 +0000</pubDate>
 			<description>Description 5</description>
 		</item>
 		<item>
-			<title>Test Show 4 S09E02.mkv</title>
+			<title>Test Show 3 S02E04.mkv</title>
 			<link>https://test.rss/4.torrent</link>
 			<guid isPermaLink="true">https://test.rss/4</guid>
-			<pubDate>Tue, 09 Jan 2018 00:49:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:10:54 +0000</pubDate>
 			<description>Description 4</description>
 		</item>
 		<item>
-			<title>Test Show 1 S09E10.mkv</title>
+			<title>Test Show 3 S02E03.mkv</title>
 			<link>https://test.rss/3.torrent</link>
 			<guid isPermaLink="true">https://test.rss/3</guid>
-			<pubDate>Tue, 09 Jan 2018 00:48:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:09:54 +0000</pubDate>
 			<description>Description 3</description>
 		</item>
 		<item>
-			<title>Test Show 3 S09E09.mkv</title>
+			<title>Test Show 3 S02E02.mkv</title>
 			<link>https://test.rss/2.torrent</link>
 			<guid isPermaLink="true">https://test.rss/2</guid>
-			<pubDate>Tue, 09 Jan 2018 00:47:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:08:54 +0000</pubDate>
 			<description>Description 2</description>
 		</item>
 		<item>
-			<title>Test Show 2 S10E04.mkv</title>
+			<title>Test Show 1 S03E01.mkv</title>
 			<link>https://test.rss/1.torrent</link>
 			<guid isPermaLink="true">https://test.rss/1</guid>
-			<pubDate>Tue, 09 Jan 2018 00:46:03 +0000</pubDate>
+			<pubDate>Tue, 09 Jan 2018 20:07:54 +0000</pubDate>
 			<description>Description 1</description>
 		</item>
 	</channel>
