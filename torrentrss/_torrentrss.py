@@ -94,6 +94,9 @@ class TorrentRSS:
             self._json.get('default_command'),
             self._json.get('default_command_shell_enabled', False)
         )
+        self.replace_windows_forbidden_characters = self._json.get(
+            'replace_windows_forbidden_characters', WINDOWS
+        )
         self.feeds = OrderedDict(
             (name, Feed(config=self, name=name, **feed_dict))
             for name, feed_dict in self._json['feeds'].items()
@@ -261,10 +264,6 @@ class Feed:
                      'link %r', rss_entry['title'], TORRENT_MIMETYPE, link)
         return link
 
-    @staticmethod
-    def substitute_windows_forbidden_characters(string):
-        return re.sub(pattern=r'[\\/:\*\?"<>\|]', repl='_', string=string)
-
     def download_entry_torrent_file(self, url: str, title: str,
                                     directory: Path) -> Path:
         headers = ({} if self.user_agent is None else
@@ -276,12 +275,11 @@ class Feed:
                       self.name, response.status_code, response.ok)
         response.raise_for_status()
 
-        title = (hashlib.sha256(response.content).hexdigest()
-                 if self.hide_torrent_filename else title)
-        path = Path(directory, title).with_suffix('.torrent')
-        if WINDOWS:
-            new_name = self.substitute_windows_forbidden_characters(path.name)
-            path = path.with_name(new_name)
+        if self.hide_torrent_filename:
+            title = hashlib.sha256(response.content).hexdigest()
+        elif self.config.replace_windows_forbidden_characters:
+            title = re.sub(pattern=r'[\\/:\*\?"<>\|]', repl='_', string=title)
+        path = Path(directory, title + '.torrent')
 
         directory.mkdir(parents=True, exist_ok=True)
         logging.debug("Feed %r: writing response bytes to file '%s'",
@@ -291,7 +289,12 @@ class Feed:
 
     def download_entry(self, rss_entry: FeedParserDict,
                        directory: Path) -> PathOrUrl:
-        url = self.torrent_url_for_entry(rss_entry)
+        try:
+            url = self.torrent_url_for_entry(rss_entry)
+        except Exception as error:
+            raise FeedError(f'Feed {self.name!r}: failed to get url for entry '
+                            f'{rss_entry["title"]!r}') \
+                from error
         if self.prefer_torrent_url:
             logging.debug('Feed %r: returning torrent url %r', self.name, url)
             return url

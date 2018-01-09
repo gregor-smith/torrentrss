@@ -13,7 +13,8 @@
 		</item>
 		<item>
 			<title>Test Show 3 S10E09.mkv</title>
-			<link>https://test.rss/48.torrent</link>
+			<link>https://test.rss/non-torrent-link</link>
+			<enclosure url="https://test.rss/48.torrent" length="1" type="application/x-bittorrent"></enclosure>
 			<guid isPermaLink="true">https://test.rss/48</guid>
 			<pubDate>Tue, 09 Jan 2018 01:33:03 +0000</pubDate>
 			<description>Description 48</description>
@@ -21,6 +22,7 @@
 		<item>
 			<title>Test Show 4 S10E10.mkv</title>
 			<link>https://test.rss/47.torrent</link>
+			<enclosure url="https://test.rss/non-torrent-enclosure" length="1" type="text/html"></enclosure>
 			<guid isPermaLink="true">https://test.rss/47</guid>
 			<pubDate>Tue, 09 Jan 2018 01:32:03 +0000</pubDate>
 			<description>Description 47</description>

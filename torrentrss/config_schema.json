@@ -18,6 +18,10 @@
             "description": "Whether to run the above command through the shell. Overridden by individual subscriptions' 'use_shell_for_command' property. Defaults to false.",
             "type": "boolean"
         },
+        "replace_windows_forbidden_characters": {
+            "description": "When true, filenames of downloaded torrents are formatted to substitute characters that are forbidden on Windows. Defaults to true on Windows, false otherwise.",
+            "type": "boolean"
+        },
         "feeds": {
             "type": "object",
             "patternProperties": {
@@ -41,7 +45,7 @@
                             "type": "boolean"
                         },
                         "hide_torrent_filename": {
-                            "description": "If true, the torrent's filename is replaced with its SHA-256 hash. If false, the filename is unchanged, although invalid characters are replaced with underscores on Windows. Ignored if 'prefer_torrent_url' is false. Defaults to true.",
+                            "description": "If true, the torrent's filename is replaced with its SHA-256 hash. If false, the filename is unchanged. Ignored if 'prefer_torrent_url' is false. Defaults to true.",
                             "type": "boolean"
                         },
                         "subscriptions": {
