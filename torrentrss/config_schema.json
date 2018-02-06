@@ -14,6 +14,10 @@
             },
             "minItems": 1
         },
+        "default_user_agent": {
+            "description": "User agent used to send the GET request to download the feed. Overridden by individual feeds' 'user_agent' property. Defaults to the Python requests package user agent.",
+            "type": "string"
+        },
         "default_use_shell_for_command": {
             "description": "Whether to run the above command through the shell. Overridden by individual subscriptions' 'use_shell_for_command' property. Defaults to false.",
             "type": "boolean"
@@ -33,7 +37,7 @@
                             "type": "string"
                         },
                         "user_agent": {
-                            "description": "User agent used to send the GET request to download the feed. Defaults to the Python requests package user agent.",
+                            "description": "User agent used to send the GET request to download the feed. If missing, the global 'default_user_agent' is used.",
                             "type": "string"
                         },
                         "prefer_torrent_url": {

@@ -159,8 +159,22 @@ class TestFeed(unittest.TestCase):
     @patch.object(Path, 'write_bytes')
     @patch.object(Path, 'mkdir')
     @patch('requests.get', return_value=MagicMock(content=CONTENT))
+    def test_download_entry_torrent_file_default_user_agent(self, requests_get, *args):
+        self.config.default_user_agent = 'test user agent'
+        self.feed.download_entry_torrent_file(
+            url=self.entry['link'], title=self.entry['title'],
+            directory=Path(PATH)
+        )
+        requests_get.assert_called_once_with(
+            self.entry['link'], headers={'User-Agent': 'test user agent'}
+        )
+
+    @patch.object(Path, 'write_bytes')
+    @patch.object(Path, 'mkdir')
+    @patch('requests.get', return_value=MagicMock(content=CONTENT))
     def test_download_entry_torrent_file_custom_user_agent(self, requests_get, *args):
-        self.feed.user_agent = 'test user agent'
+        self.config.default_user_agent = self.feed.user_agent \
+            = 'test user agent'
         self.feed.download_entry_torrent_file(
             url=self.entry['link'], title=self.entry['title'],
             directory=Path(PATH)
@@ -228,6 +242,7 @@ class TestTorrentRSS(unittest.TestCase):
     def test_properties(self):
         assert self.config.default_directory == TEMPORARY_DIRECTORY
         assert self.config.default_command.arguments is None
+        assert self.config.default_user_agent is None
         assert not self.config.default_command.shell
         assert self.config.replace_windows_forbidden_characters == WINDOWS
         assert 'Test feed 1' in self.config.feeds

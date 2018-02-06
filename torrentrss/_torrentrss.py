@@ -75,6 +75,7 @@ class TorrentRSS:
     feeds: Dict[str, 'Feed']
     default_directory: Path
     default_command: 'Command'
+    default_user_agent: Optional[str]
     replace_windows_forbidden_characters: bool
 
     def __init__(self, path: Path=CONFIG_PATH) -> None:
@@ -90,6 +91,7 @@ class TorrentRSS:
             self._json.get('default_command'),
             self._json.get('default_command_shell_enabled', False)
         )
+        self.default_user_agent = self._json.get('default_user_agent')
         self.replace_windows_forbidden_characters = self._json.get(
             'replace_windows_forbidden_characters', WINDOWS
         )
@@ -172,11 +174,12 @@ class Command:
 
 
 class Feed:
+    _user_agent = Optional[str]
+
     config: TorrentRSS
     subscriptions: Dict[str, 'Subscription']
     name: str
     url: str
-    user_agent: Optional[str]
     prefer_torrent_url: bool
     hide_torrent_filename: bool
 
@@ -184,6 +187,8 @@ class Feed:
                  subscriptions: Json, user_agent: Optional[str]=None,
                  prefer_torrent_url: bool=True,
                  hide_torrent_filename: bool=True) -> None:
+        self._user_agent = None
+
         self.config = config
         self.name = name
         self.url = url
@@ -195,8 +200,16 @@ class Feed:
         self.prefer_torrent_url = prefer_torrent_url
         self.hide_torrent_filename = hide_torrent_filename
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'{self.__class__.__name__}(name={self.name!r}, url={self.url!r})'
+
+    @property
+    def user_agent(self) -> Optional[str]:
+        return self._user_agent or self.config.default_user_agent
+
+    @user_agent.setter
+    def user_agent(self, value: Optional[str]) -> None:
+        self._user_agent = value
 
     @property
     def headers(self) -> Dict[str, str]:
