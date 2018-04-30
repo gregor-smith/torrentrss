@@ -344,6 +344,8 @@ class Subscription:
     name: str
     regex: Pattern
     number: EpisodeNumber
+    directory: Path
+    command: Command
 
     def __init__(self, feed: Feed, name: str, pattern: str,
                  series_number: Optional[int]=None,
@@ -351,8 +353,6 @@ class Subscription:
                  directory: Optional[str]=None,
                  command: Optional[List[str]]=None,
                  use_shell_for_command: bool=False) -> None:
-        self._directory = self._command = None
-
         self.feed = feed
         self.name = name
         try:

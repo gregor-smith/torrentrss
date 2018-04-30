@@ -1,11 +1,9 @@
 .cache/
 .mypy_cache/
 .vscode/
+.eggs/
+.pytest_cache/
+*.egg-info/
 dist/
 build/
-test*/
 *.pyc
-*.egg-info
-*.sublime-workspace
-*.sublime-project
-*.7z
