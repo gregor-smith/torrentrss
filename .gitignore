@@ -4,6 +4,6 @@
 .eggs/
 .pytest_cache/
 *.egg-info/
+*.pyc
 dist/
 build/
-*.pyc

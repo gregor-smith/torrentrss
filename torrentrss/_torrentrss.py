@@ -58,7 +58,7 @@ def get_schema_dict() -> Json:
     return json.loads(get_schema())
 
 
-def show_exception_gui(exception) -> None:
+def show_exception_gui(exception: Exception) -> None:
     text = f'An exception of type {exception.__class__.__name__} occurred.'
     if shutil.which('notify-send') is not None:
         subprocess.Popen(['notify-send', '--app-name', NAME, NAME, text])
@@ -78,7 +78,7 @@ class TorrentRSS:
     default_user_agent: Optional[str]
     replace_windows_forbidden_characters: bool
 
-    def __init__(self, path: Path=CONFIG_PATH) -> None:
+    def __init__(self, path: Path = CONFIG_PATH) -> None:
         self.path = path
         with open(self.path, encoding='utf-8') as file:
             self._json = json.load(file, object_pairs_hook=OrderedDict)
@@ -106,7 +106,7 @@ class TorrentRSS:
                 path_or_url = feed.download_entry(entry, sub.directory)
                 sub.command(path_or_url)
 
-    def save_episode_numbers(self, file: Optional[TextIO]=None) -> None:
+    def save_episode_numbers(self, file: Optional[TextIO] = None) -> None:
         logging.info('Writing episode numbers')
         json_feeds = self._json['feeds']
         for feed_name, feed in self.feeds.items():
@@ -129,8 +129,8 @@ class Command:
     arguments: Optional[List[str]]
     shell: bool
 
-    def __init__(self, arguments: Optional[List[str]]=None,
-                 shell: bool=False) -> None:
+    def __init__(self, arguments: Optional[List[str]] = None,
+                 shell: bool = False) -> None:
         self.arguments = arguments
         self.shell = shell
 
@@ -160,6 +160,7 @@ class Command:
 
     def __call__(self, path_or_url: PathOrUrl) -> Optional[subprocess.Popen]:
         if self.arguments is not None:
+            startupinfo: Optional[subprocess.STARTUPINFO]
             if WINDOWS:
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
@@ -171,10 +172,11 @@ class Command:
                                     startupinfo=startupinfo)
         logging.info("Launching %r with default program", path_or_url)
         self.startfile(path_or_url)
+        return None
 
 
 class Feed:
-    _user_agent = Optional[str]
+    _user_agent: Optional[str]
 
     config: TorrentRSS
     subscriptions: Dict[str, 'Subscription']
@@ -334,7 +336,9 @@ class EpisodeNumber(_EpisodeNumberBase):
         series, episode = other
         if episode is None:
             return True
-        if self.series is not None and series is not None and self.series != series:
+        if self.series is not None \
+                and series is not None \
+                and self.series != series:
             return self.series > series
         return self.episode > episode
 
@@ -379,7 +383,7 @@ class Subscription:
         return f'{self.__class__.__name__}name={self.name!r}, feed={self.feed.name!r})'
 
 
-def configure_logging(level: Optional[str]=None) -> None:
+def configure_logging(level: str) -> None:
     logging.basicConfig(format=LOG_MESSAGE_FORMAT, level=level,
                         stream=sys.stdout)
 
