@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "torrentrss"
 description = "An RSS torrent fetcher. Matches entries with regexp, keeps track of episode numbers, allows custom commands, and more."
-version = "0.6"
+version = "0.7"
 license = "MIT"
 authors = ["Gregor Smith <gregor_smith@outlook.com>"]
 readme = "README.md"
@@ -9,14 +9,13 @@ repository = "https://github.com/gregor-smith/torrentrss"
 homepage = "https://github.com/gregor-smith/torrentrss"
 
 [tool.poetry.dependencies]
-python = "^3.6"
+python = "^3.7"
 click = "~6.7"
 requests = "~2.18.4"
 feedparser = "~5.2.1"
 jsonschema = "~2.6.0"
 
 [tool.poetry.dev-dependencies]
-rope = "*"
 ipython = "*"
 ipdb = "*"
 pytest = "*"

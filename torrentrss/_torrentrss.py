@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import re
 import sys
@@ -12,7 +14,7 @@ from pathlib import Path
 from collections import OrderedDict
 from typing.re import Pattern, Match
 from typing import (Any, Dict, List, Tuple, Union, TextIO,
-                    NamedTuple, Iterator, Optional)
+                    NamedTuple, Iterator, Optional, cast)
 
 import click
 import requests
@@ -22,7 +24,7 @@ import pkg_resources
 from feedparser import FeedParserDict
 
 NAME = 'torrentrss'
-VERSION = '0.6'
+VERSION = '0.7'
 WINDOWS = os.name == 'nt'
 CONFIG_DIRECTORY = Path(click.get_app_dir(NAME))
 CONFIG_PATH = Path(CONFIG_DIRECTORY, 'config.json')
@@ -72,9 +74,9 @@ class TorrentRSS:
     _json: Json
 
     path: Path
-    feeds: Dict[str, 'Feed']
+    feeds: Dict[str, Feed]
     default_directory: Path
-    default_command: 'Command'
+    default_command: Command
     default_user_agent: Optional[str]
     replace_windows_forbidden_characters: bool
 
@@ -146,7 +148,7 @@ class Command:
         #      https://stackoverflow.com/a/16291763/3289208
         def replacer(match: Match) -> str:
             return os.fspath(path_or_url)
-        for argument in self.arguments:
+        for argument in cast(List[str], self.arguments):
             yield re.sub(pattern=re.escape(COMMAND_PATH_ARGUMENT),
                          repl=replacer, string=argument)
 
@@ -227,7 +229,7 @@ class Feed:
         logging.info('Feed %r: downloaded url %r', self.name, self.url)
         return rss
 
-    def matching_subs(self) -> Iterator[Tuple['Subscription', FeedParserDict]]:
+    def matching_subs(self) -> Iterator[Tuple[Subscription, FeedParserDict]]:
         if not self.subscriptions:
             return
 
@@ -323,7 +325,7 @@ class _EpisodeNumberBase(NamedTuple):
 
 class EpisodeNumber(_EpisodeNumberBase):
     @classmethod
-    def from_regex_match(cls, match: Match) -> 'EpisodeNumber':
+    def from_regex_match(cls, match: Match) -> EpisodeNumber:
         groups = match.groupdict()
         return cls(
             series=int(groups['series']) if 'series' in groups else None,
