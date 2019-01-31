@@ -1,0 +1,20 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+ipython = "*"
+ipdb = "*"
+pytest = "*"
+mypy = "*"
+flake8 = "*"
+
+[packages]
+click = "*"
+requests = "*"
+feedparser = "*"
+jsonschema = "*"
+
+[requires]
+python_version = "3.7"
