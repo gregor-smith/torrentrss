@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from os import PathLike
 from pathlib import Path
-from logging import Formatter
+from logging import Formatter, Logger, StreamHandler
 from argparse import ArgumentParser
 from typing.re import Pattern, Match
 from typing import (
@@ -26,10 +26,8 @@ import appdirs
 import feedparser
 import jsonschema
 from aiofile import AIOFile
-from aiologger import Logger
 from feedparser import FeedParserDict
 from aiohttp.client import ClientSession
-from aiologger.handlers import AsyncStreamHandler
 
 
 NAME = 'torrentrss'
@@ -48,7 +46,7 @@ WINDOWS = sys.platform == 'win32' or sys.platform == 'cygwin'
 Json = Dict[str, Any]
 
 
-logger = Logger()
+logger = Logger(name=NAME)
 
 
 class TorrentRSSError(Exception):
@@ -146,7 +144,7 @@ class TorrentRSS:
                     await sub.command(url)
 
     async def save_episode_numbers(self, file: Optional[AIOFile] = None) -> None:
-        await logger.info('Writing episode numbers')
+        logger.info('Writing episode numbers')
 
         json_feeds = self.config['feeds']
         for feed_name, feed in self.feeds.items():
@@ -204,7 +202,7 @@ class Command:
                 startupinfo = None
 
             arguments = list(self.subbed_arguments(url))
-            await logger.info(
+            logger.info(
                 f'Launching subprocess with arguments {arguments}'
             )
             return subprocess.Popen(
@@ -212,7 +210,7 @@ class Command:
                 startupinfo=startupinfo
             )
 
-        await logger.info(f'Launching {url!r} with default program')
+        logger.info(f'Launching {url!r} with default program')
         open_url_in_default_application(url)
         return None
 
@@ -263,7 +261,7 @@ class Feed:
                 f'Feed {self.name!r}: error parsing url {self.url!r}'
             ) from rss['bozo_exception']
 
-        await logger.info(f'Feed {self.name!r}: downloaded url {self.url!r}')
+        logger.info(f'Feed {self.name!r}: downloaded url {self.url!r}')
         return rss
 
     async def matching_subs(self) -> AsyncIterator[Tuple[Subscription, FeedParserDict]]:
@@ -287,7 +285,7 @@ class Feed:
                 if match:
                     number = EpisodeNumber.from_regex_match(match)
                     if number > original_numbers[sub]:
-                        await logger.info(
+                        logger.info(
                             f'MATCH: entry {index} {entry["title"]!r} has '
                             + f'greater number than sub {sub.name!r}: '
                             + f'{number} > {original_numbers[sub]}'
@@ -295,14 +293,14 @@ class Feed:
                         sub.number = number
                         yield sub, entry
                     else:
-                        await logger.debug(
+                        logger.debug(
                             f'NO MATCH: entry {index} {entry["title"]!r} '
                             + 'matches but number less than or equal to sub '
                             + f'{sub.name!r}: {number} <= '
                             + f'{original_numbers[sub]}'
                         )
                 else:
-                    await logger.debug(
+                    logger.debug(
                         f'NO MATCH: entry {index} {entry["title"]!r} against '
                         + f'sub {sub.name!r}'
                     )
@@ -311,13 +309,13 @@ class Feed:
     async def get_entry_url(rss_entry: FeedParserDict) -> str:
         for link in rss_entry['links']:
             if link['type'] == TORRENT_MIMETYPE:
-                await logger.debug(
+                logger.debug(
                     f'Entry {rss_entry["title"]!r}: first link with mimetype '
                     + f'{TORRENT_MIMETYPE!r} is {link["href"]!r}'
                 )
                 return link['href']
 
-        await logger.info(
+        logger.info(
             f'Entry {rss_entry["title"]!r}: no link with mimetype '
             + f'{TORRENT_MIMETYPE!r}, returning first link '
             + f'{rss_entry["link"]!r}'
@@ -405,11 +403,9 @@ class Subscription:
 
 
 def configure_logging(level: str) -> None:
-    handler = AsyncStreamHandler(
-        stream=sys.stdout,
-        level=level,
-        formatter=Formatter(fmt=LOG_MESSAGE_FORMAT)
-    )
+    handler = StreamHandler(stream=sys.stdout)
+    handler.setLevel(level)
+    handler.setFormatter(Formatter(fmt=LOG_MESSAGE_FORMAT))
     logger.setLevel(level)
     logger.addHandler(handler)
 
@@ -454,6 +450,6 @@ async def main() -> None:
     try:
         await app.run()
     except Exception as error:
-        await logger.exception(error.__class__.__name__)
+        logger.exception(error.__class__.__name__)
         show_exception_notification(error)
         parser.exit(2)
