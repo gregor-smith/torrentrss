@@ -12,11 +12,6 @@ I've always found the builtin RSS support to be lackluster in every torrent clie
 * Can set custom commands to be run on the path or URL for each subscription
 
 ### Requirements
-Python 3.7 or newer, and the following packages:
-
-* `click`
-* `requests`
-* `feedparser`
-* `jsonschema`
+Python 3.7 or newer. See the `Pipfile` for dependencies.
 
 For error messages to appear as a notification, `notify-send` must be on the `$PATH`.
