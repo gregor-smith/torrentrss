@@ -11,10 +11,13 @@ mypy = "*"
 flake8 = "*"
 
 [packages]
-click = "*"
 requests = "*"
 feedparser = "*"
 jsonschema = "*"
+aiohttp = "*"
+aiofile = "*"
+aiologger = "*"
+appdirs = "*"
 
 [requires]
 python_version = "3.7"
