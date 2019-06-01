@@ -2,17 +2,21 @@ import io
 import re
 import json
 import unittest
-from pathlib import Path
 from unittest.mock import patch, MagicMock, ANY, call
 
 import pytest
 import feedparser
 
-from torrentrss import (TorrentRSS, Command, Feed, Subscription,
-                        EpisodeNumber, ConfigError, FeedError,
-                        WINDOWS, TEMPORARY_DIRECTORY)
+from torrentrss import (
+    TorrentRSS,
+    Command,
+    Feed,
+    Subscription,
+    EpisodeNumber,
+    ConfigError
+)
 
-PATH = '/home/test/テスト'
+URL = 'http://test.com/test.torrent'
 NAME = 'test name'
 PATTERN = r'test pattern (?P<episode>.)'
 CONTENT = b'test'
@@ -21,19 +25,18 @@ CONTENT = b'test'
 class TestCommand:
     @patch('subprocess.Popen')
     def test_arguments(self, popen):
-        command = Command(['command', '$PATH_OR_URL', '--option'], shell=True)
-        command(PATH)
+        command = Command(['command', '$URL', '--option'])
+        command(URL)
         popen.assert_called_once_with(
-            args=['command', PATH, '--option'],
-            shell=True,
+            args=['command', URL, '--option'],
             startupinfo=ANY
         )
 
-    @patch.object(Command, 'startfile')
-    def test_no_arguments(self, startfile):
+    @patch.object(Command, 'launch_url')
+    def test_no_arguments(self, launch_url):
         command = Command()
-        command(PATH)
-        startfile.assert_called_once_with(PATH)
+        command(URL)
+        launch_url.assert_called_once_with(URL)
 
 
 class TestEpisodeNumber:
@@ -64,27 +67,27 @@ class TestSubscription:
     def test_properties(self):
         name = NAME
         pattern = PATTERN
-        directory = PATH
         command = ['test', 'command']
-        sub = Subscription(feed=MagicMock(), name=name, pattern=pattern,
-                           directory=directory, command=command)
+        sub = Subscription(
+            feed=MagicMock(),
+            name=name,
+            pattern=pattern,
+            command=command
+        )
 
         assert sub.name == name
         assert sub.regex.pattern == pattern
         assert sub.number.series is None
         assert sub.number.episode is None
-        assert sub.directory == Path(directory)
         assert sub.command.arguments == command
-        assert not sub.command.shell
 
     def test_uses_config_default_properties(self):
-        default_directory = Path(PATH)
         default_command = Command()
-        feed = MagicMock(**{'config.default_directory': default_directory,
-                            'config.default_command': default_command})
+        feed = MagicMock(**{
+            'config.default_command': default_command
+        })
         sub = Subscription(feed=feed, name=NAME, pattern=PATTERN)
 
-        assert sub.directory is default_directory
         assert sub.command is default_command
 
     def test_invalid_regex(self):
@@ -96,7 +99,7 @@ class TestSubscription:
 
 class TestFeed(unittest.TestCase):
     def setUp(self):
-        self.config = TorrentRSS(Path('./testconfig.json'))
+        self.config = TorrentRSS('./testconfig.json')
         self.feed = self.config.feeds['Test feed 1']
         with open('./testfeed.xml', encoding='utf-8') as file:
             self.rss = feedparser.parse(file.read())
@@ -107,8 +110,6 @@ class TestFeed(unittest.TestCase):
         assert self.feed.name == 'Test feed 1'
         assert self.feed.url == 'https://test.com/rss'
         assert self.feed.user_agent is None
-        assert self.feed.prefer_torrent_url
-        assert self.feed.hide_torrent_filename
         assert 'Test sub 1' in self.feed.subscriptions
         assert 'Test sub 2' in self.feed.subscriptions
 
@@ -132,123 +133,20 @@ class TestFeed(unittest.TestCase):
         ]
         assert sub1.number == sub2.number == EpisodeNumber(3, 5)
 
-    def test_torrent_url_for_entry_with_link_only(self):
-        result = self.feed.torrent_url_for_entry(self.rss.entries[0])
+    def test_get_entry_url(self):
+        result = self.feed.get_entry_url(self.entry)
         assert result == 'https://test.rss/20.torrent'
-
-    def test_torrent_url_for_entry_with_torrent_enclosure(self):
-        result = self.feed.torrent_url_for_entry(self.rss.entries[1])
-        assert result == 'https://test.rss/19.torrent'
-
-    def test_torrent_url_for_entry_with_non_torrent_enclosure(self):
-        result = self.feed.torrent_url_for_entry(self.rss.entries[2])
-        assert result == 'https://test.rss/18.torrent'
-
-    @patch.object(Path, 'write_bytes')
-    @patch.object(Path, 'mkdir')
-    @patch('requests.get', return_value=MagicMock(content=CONTENT))
-    def test_download_entry_torrent_file(self, requests_get, mkdir, write_bytes):
-        path = self.feed.download_entry_torrent_file(
-            url=self.entry['link'], title=self.entry['title'],
-            directory=Path(PATH)
-        )
-        requests_get.assert_called_once_with(self.entry['link'], headers={})
-        mkdir.assert_called_once()
-        write_bytes.assert_called_once_with(CONTENT)
-        assert path == Path(
-            PATH,
-            '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.torrent'
-        )
-
-    @patch.object(Path, 'write_bytes')
-    @patch.object(Path, 'mkdir')
-    @patch('requests.get', return_value=MagicMock(content=CONTENT))
-    def test_download_entry_torrent_file_default_user_agent(self, requests_get, *args):
-        self.config.default_user_agent = 'test user agent'
-        self.feed.download_entry_torrent_file(
-            url=self.entry['link'], title=self.entry['title'],
-            directory=Path(PATH)
-        )
-        requests_get.assert_called_once_with(
-            self.entry['link'], headers={'User-Agent': 'test user agent'}
-        )
-
-    @patch.object(Path, 'write_bytes')
-    @patch.object(Path, 'mkdir')
-    @patch('requests.get', return_value=MagicMock(content=CONTENT))
-    def test_download_entry_torrent_file_custom_user_agent(self, requests_get, *args):
-        self.config.default_user_agent = self.feed.user_agent \
-            = 'test user agent'
-        self.feed.download_entry_torrent_file(
-            url=self.entry['link'], title=self.entry['title'],
-            directory=Path(PATH)
-        )
-        requests_get.assert_called_once_with(
-            self.entry['link'], headers={'User-Agent': 'test user agent'}
-        )
-
-    @patch.object(Path, 'write_bytes')
-    @patch.object(Path, 'mkdir')
-    @patch('requests.get', return_value=MagicMock(content=CONTENT))
-    def test_download_entry_torrent_file_no_hide_filename(self, *args):
-        self.feed.hide_torrent_filename = False
-        path = self.feed.download_entry_torrent_file(
-            url=self.entry['link'], title=self.entry['title'],
-            directory=Path(PATH)
-        )
-        assert path == Path(PATH, self.entry['title'] + '.torrent')
-
-    @patch.object(Path, 'write_bytes')
-    @patch.object(Path, 'mkdir')
-    @patch('requests.get', return_value=MagicMock(content=CONTENT))
-    def test_download_entry_torrent_file_replace_forbidden_characters(self, *args):
-        self.config.replace_windows_forbidden_characters = True
-        self.feed.hide_torrent_filename = False
-        path = self.feed.download_entry_torrent_file(
-            url=self.entry['link'],
-            title='\テスト/ :string* full? of" <forbidden> characters|',
-            directory=Path(PATH)
-        )
-        assert path == Path(
-            PATH, '_テスト_ _string_ full_ of_ _forbidden_ characters_.torrent'
-        )
-
-    def test_download_entry_url_preferred(self):
-        path_or_url = self.feed.download_entry(self.entry, Path(PATH))
-        assert path_or_url == self.entry['link']
-
-    @patch.object(Feed, 'torrent_url_for_entry', side_effect=KeyError)
-    def test_download_entry_url_preferred_error(self, *args):
-        with pytest.raises(FeedError):
-            self.feed.download_entry(self.entry, Path(PATH))
-
-    @patch.object(Path, 'write_bytes')
-    @patch.object(Path, 'mkdir')
-    @patch('requests.get', return_value=MagicMock(content=CONTENT))
-    def test_download_entry_no_url_preferred(self, *args):
-        self.feed.prefer_torrent_url = self.feed.hide_torrent_filename = False
-        path_or_url = self.feed.download_entry(self.entry, Path(PATH))
-        assert path_or_url == Path(PATH, self.entry['title'] + '.torrent')
-
-    @patch.object(Feed, 'download_entry_torrent_file', side_effect=IOError)
-    def test_download_entry_no_url_preferred_error(self, *args):
-        self.feed.prefer_torrent_url = False
-        with pytest.raises(FeedError):
-            self.feed.download_entry(self.entry, Path(PATH))
 
 
 class TestTorrentRSS(unittest.TestCase):
     def setUp(self):
-        self.config = TorrentRSS(Path('./testconfig.json'))
+        self.config = TorrentRSS('./testconfig.json')
         with open('./testfeed.xml', encoding='utf-8') as file:
             self.rss = feedparser.parse(file.read())
 
     def test_properties(self):
-        assert self.config.default_directory == TEMPORARY_DIRECTORY
         assert self.config.default_command.arguments is None
         assert self.config.default_user_agent is None
-        assert not self.config.default_command.shell
-        assert self.config.replace_windows_forbidden_characters == WINDOWS
         assert 'Test feed 1' in self.config.feeds
         assert 'Test feed 2' in self.config.feeds
 

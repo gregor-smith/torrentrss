@@ -5,10 +5,9 @@ import re
 import sys
 import json
 import shutil
-import hashlib
 import logging
-import tempfile
 import subprocess
+from os import PathLike
 from pathlib import Path
 from typing.re import Pattern, Match
 from typing import (
@@ -16,7 +15,6 @@ from typing import (
     Dict,
     List,
     Tuple,
-    Union,
     TextIO,
     Iterator,
     Optional,
@@ -24,26 +22,24 @@ from typing import (
 )
 
 import click
-import requests
 import feedparser
 import jsonschema
 import pkg_resources
 from feedparser import FeedParserDict
 
+
 NAME = 'torrentrss'
-VERSION = '0.7'
+VERSION = '0.8'
 WINDOWS = os.name == 'nt'
 CONFIG_DIRECTORY = Path(click.get_app_dir(NAME))
 CONFIG_PATH = Path(CONFIG_DIRECTORY, 'config.json')
 CONFIG_SCHEMA_FILENAME = 'config_schema.json'
 LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
-TEMPORARY_DIRECTORY = Path(tempfile.gettempdir())
-COMMAND_PATH_ARGUMENT = '$PATH_OR_URL'
+COMMAND_URL_ARGUMENT = '$URL'
 TORRENT_MIMETYPE = 'application/x-bittorrent'
 
 
 Json = Dict[str, Any]
-PathOrUrl = Union[Path, str]
 
 
 class TorrentRSSError(Exception):
@@ -76,31 +72,19 @@ def show_exception_notification(exception: Exception) -> None:
 class TorrentRSS:
     _json: Json
 
-    path: Path
+    path: PathLike
     feeds: Dict[str, Feed]
-    default_directory: Path
     default_command: Command
     default_user_agent: Optional[str]
-    replace_windows_forbidden_characters: bool
 
-    def __init__(self, path: Path = CONFIG_PATH) -> None:
+    def __init__(self, path: PathLike = CONFIG_PATH) -> None:
         self.path = path
         with open(self.path, encoding='utf-8') as file:
             self._json = json.load(file)
         jsonschema.validate(self._json, get_schema_dict())
 
-        self.default_directory = Path(
-            self._json.get('default_directory', TEMPORARY_DIRECTORY)
-        )
-        self.default_command = Command(
-            self._json.get('default_command'),
-            self._json.get('default_command_shell_enabled', False)
-        )
+        self.default_command = Command(self._json.get('default_command'))
         self.default_user_agent = self._json.get('default_user_agent')
-        self.replace_windows_forbidden_characters = self._json.get(
-            'replace_windows_forbidden_characters',
-            WINDOWS
-        )
         self.feeds = {
             name: Feed(config=self, name=name, **feed_dict)
             for name, feed_dict in self._json['feeds'].items()
@@ -109,8 +93,8 @@ class TorrentRSS:
     def check_feeds(self) -> None:
         for feed in self.feeds.values():
             for sub, entry in feed.matching_subs():
-                path_or_url = feed.download_entry(entry, sub.directory)
-                sub.command(path_or_url)
+                url = Feed.get_entry_url(entry)
+                sub.command(url)
 
     def save_episode_numbers(self, file: Optional[TextIO] = None) -> None:
         logging.info('Writing episode numbers')
@@ -133,20 +117,14 @@ class TorrentRSS:
 
 class Command:
     arguments: Optional[List[str]]
-    shell: bool
 
-    def __init__(
-        self,
-        arguments: Optional[List[str]] = None,
-        shell: bool = False
-    ) -> None:
+    def __init__(self, arguments: Optional[List[str]] = None) -> None:
         self.arguments = arguments
-        self.shell = shell
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}(arguments={self.arguments})'
 
-    def subbed_arguments(self, path_or_url: PathOrUrl) -> Iterator[str]:
+    def subbed_arguments(self, url: str) -> Iterator[str]:
         # The repl parameter here is a function which at first looks like it
         # could just be a string, but it actually needs to be a function or
         # else escapes in the string would be processed, leading to problems
@@ -154,24 +132,24 @@ class Command:
         # See: https://docs.python.org/3/library/re.html#re.sub
         #      https://stackoverflow.com/a/16291763/3289208
         def replacer(_: Match) -> str:
-            return os.fspath(path_or_url)
+            return url
         for argument in cast(List[str], self.arguments):
             yield re.sub(
-                pattern=re.escape(COMMAND_PATH_ARGUMENT),
+                pattern=re.escape(COMMAND_URL_ARGUMENT),
                 repl=replacer,
                 string=argument
             )
 
     @staticmethod
-    def startfile(path_or_url: PathOrUrl) -> None:
+    def launch_url(url: str) -> None:
         # click.launch uses os.system on Windows, which shows a cmd.exe
         # window for a split second. Hence os.startfile is preferred.
         if WINDOWS:
-            os.startfile(path_or_url)
+            os.startfile(url)
             return
-        click.launch(os.fspath(path_or_url))
+        click.launch(url)
 
-    def __call__(self, path_or_url: PathOrUrl) -> Optional[subprocess.Popen]:
+    def __call__(self, url: str) -> Optional[subprocess.Popen]:
         if self.arguments is not None:
             startupinfo: Optional[subprocess.STARTUPINFO]
             if WINDOWS:
@@ -179,15 +157,14 @@ class Command:
                 startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
             else:
                 startupinfo = None
-            arguments = list(self.subbed_arguments(path_or_url))
+            arguments = list(self.subbed_arguments(url))
             logging.info(f'Launching subprocess with arguments {arguments}')
             return subprocess.Popen(
                 args=arguments,
-                shell=self.shell,
                 startupinfo=startupinfo
             )
-        logging.info(f'Launching {path_or_url!r} with default program')
-        self.startfile(path_or_url)
+        logging.info(f'Launching {url!r} with default program')
+        self.launch_url(url)
         return None
 
 
@@ -198,8 +175,6 @@ class Feed:
     subscriptions: Dict[str, 'Subscription']
     name: str
     url: str
-    prefer_torrent_url: bool
-    hide_torrent_filename: bool
 
     def __init__(
         self, *,
@@ -208,8 +183,6 @@ class Feed:
         url: str,
         subscriptions: Json,
         user_agent: Optional[str] = None,
-        prefer_torrent_url: bool = True,
-        hide_torrent_filename: bool = True
     ) -> None:
         self._user_agent = None
 
@@ -221,8 +194,6 @@ class Feed:
             for name, sub_dict in subscriptions.items()
         }
         self.user_agent = user_agent
-        self.prefer_torrent_url = prefer_torrent_url
-        self.hide_torrent_filename = hide_torrent_filename
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}(name={self.name!r}, url={self.url!r})'
@@ -292,78 +263,21 @@ class Feed:
                     )
 
     @staticmethod
-    def torrent_url_for_entry(rss_entry: FeedParserDict) -> str:
+    def get_entry_url(rss_entry: FeedParserDict) -> str:
         for link in rss_entry['links']:
             if link['type'] == TORRENT_MIMETYPE:
-                href = link['href']
                 logging.debug(
                     f'Entry {rss_entry["title"]!r}: first link with mimetype '
-                    + f'{TORRENT_MIMETYPE!r} is {href!r}'
+                    + f'{TORRENT_MIMETYPE!r} is {link["href"]!r}'
                 )
-                return href
-        link = rss_entry['link']
+                return link['href']
+
         logging.info(
             f'Entry {rss_entry["title"]!r}: no link with mimetype '
-            + f'{TORRENT_MIMETYPE!r}, returning first link {link!r}'
+            + f'{TORRENT_MIMETYPE!r}, returning first link '
+            + f'{rss_entry["link"]!r}'
         )
-        return link
-
-    def download_entry_torrent_file(
-        self,
-        url: str,
-        title: str,
-        directory: Path
-    ) -> Path:
-        logging.debug(
-            f'Feed {self.name!r}: sending GET request to {url!r} '
-            + f'with headers {self.headers}'
-        )
-        response = requests.get(url, headers=self.headers)
-        logging.debug(
-            f'Feed {self.name!r}: response status code is '
-            + f"{response.status_code}, 'ok' is {response.ok}"
-        )
-        response.raise_for_status()
-
-        if self.hide_torrent_filename:
-            title = hashlib.sha256(response.content).hexdigest()
-        elif self.config.replace_windows_forbidden_characters:
-            title = re.sub(pattern=r'[\\/:\*\?"<>\|]', repl='_', string=title)
-        path = Path(directory, title + '.torrent')
-
-        directory.mkdir(parents=True, exist_ok=True)
-        logging.debug(
-            f'Feed {self.name!r}: writing response bytes to file {path}'
-        )
-        path.write_bytes(response.content)
-        return path
-
-    def download_entry(
-        self,
-        rss_entry: FeedParserDict,
-        directory: Path
-    ) -> PathOrUrl:
-        try:
-            url = self.torrent_url_for_entry(rss_entry)
-        except Exception as error:
-            raise FeedError(
-                f'Feed {self.name!r}: failed to get url for entry '
-                + f'{rss_entry["title"]!r}'
-            ) from error
-        if self.prefer_torrent_url:
-            logging.debug(f'Feed {self.name!r}: returning torrent url {url!r}')
-            return url
-
-        try:
-            return self.download_entry_torrent_file(
-                url=url,
-                title=rss_entry['title'],
-                directory=directory
-            )
-        except Exception as error:
-            raise FeedError(
-                f'Feed {self.name!r}: failed to download {url}'
-            ) from error
+        return rss_entry['link']
 
 
 class EpisodeNumber:
@@ -407,7 +321,6 @@ class Subscription:
     name: str
     regex: Pattern
     number: EpisodeNumber
-    directory: Path
     command: Command
 
     def __init__(
@@ -417,9 +330,7 @@ class Subscription:
         pattern: str,
         series_number: Optional[int] = None,
         episode_number: Optional[int] = None,
-        directory: Optional[str] = None,
-        command: Optional[List[str]] = None,
-        use_shell_for_command: bool = False
+        command: Optional[List[str]] = None
     ) -> None:
         self.feed = feed
         self.name = name
@@ -436,17 +347,14 @@ class Subscription:
                 f'Feed {feed.name!r} sub {name!r} pattern '
                 f'{pattern!r} has no group for the episode number'
             )
-        self.number = EpisodeNumber(series=series_number,
-                                    episode=episode_number)
-        self.directory = (
-            feed.config.default_directory
-            if directory is None else
-            Path(directory)
+        self.number = EpisodeNumber(
+            series=series_number,
+            episode=episode_number
         )
         self.command = (
             feed.config.default_command
             if command is None else
-            Command(command, use_shell_for_command)
+            Command(command)
         )
 
     def __repr__(self):

@@ -2,12 +2,8 @@
     "$schema": "http://json-schema.org/draft-04/schema#",
     "type": "object",
     "properties": {
-        "default_directory": {
-            "description": "The directory to which torrent files are downloaded. Overridden by individual subscriptions' 'directory' property. Defaults to the operating system's temporary directory.",
-            "type": "string"
-        },
         "default_command": {
-            "description": "The command used to execute file paths or URLs. Overridden by individual subscriptions' 'command' property. '$PATH_OR_URL' is substituted for the torrent's URL or path depending on the feed's configuration. This array is otherwise passed directly to Python's subprocess module, which takes care of any escaping or quoting, so there is no need to do so yourself. By default the path or URL is launched with the operating system's default program for that protocol.",
+            "description": "The command used to execute URLs. Overridden by individual subscriptions' 'command' property. '$URL' is substituted for the torrent's URL. This array is otherwise passed directly to Python's subprocess module, which takes care of any escaping or quoting, so there is no need to do so yourself. By default the URL is launched with the operating system's default program for that protocol.",
             "type": "array",
             "items": {
                 "type": "string"
@@ -17,14 +13,6 @@
         "default_user_agent": {
             "description": "User agent used to send the GET request to download the feed. Overridden by individual feeds' 'user_agent' property. Defaults to the Python requests package user agent.",
             "type": "string"
-        },
-        "default_use_shell_for_command": {
-            "description": "Whether to run the above command through the shell. Overridden by individual subscriptions' 'use_shell_for_command' property. Defaults to false.",
-            "type": "boolean"
-        },
-        "replace_windows_forbidden_characters": {
-            "description": "When true, filenames of downloaded torrents are formatted to substitute characters that are forbidden on Windows. Defaults to true on Windows, false otherwise.",
-            "type": "boolean"
         },
         "feeds": {
             "type": "object",
@@ -39,14 +27,6 @@
                         "user_agent": {
                             "description": "User agent used to send the GET request to download the feed. If missing, the global 'default_user_agent' is used.",
                             "type": "string"
-                        },
-                        "prefer_torrent_url": {
-                            "description": "If true, the torrent file's URL is passed to the command rather than first downloading the file and passing the path. Defaults to true",
-                            "type": "boolean"
-                        },
-                        "hide_torrent_filename": {
-                            "description": "If true, the torrent's filename is replaced with its SHA-256 hash. If false, the filename is unchanged. Ignored if 'prefer_torrent_url' is false. Defaults to true.",
-                            "type": "boolean"
                         },
                         "subscriptions": {
                             "type": "object",
@@ -66,21 +46,13 @@
                                             "description": "The current series number. See 'episode_number', as the same applies here.",
                                             "type": "integer"
                                         },
-                                        "directory": {
-                                            "description": "The directory to which torrent files are downloaded. If missing, the global 'default_directory' is used.",
-                                            "type": "string"
-                                        },
                                         "command": {
-                                            "description": "Command run after the torrent file is downloaded. '$PATH_OR_URL' is substituted for the torrent's URL or path depending on the feed's configuration. This array is otherwise passed directly to Python's subprocess module, which takes care of any escaping or quoting, so there is no need to do so yourself. If missing, 'default_command' is used.",
+                                            "description": "Command to which the torrent URL is passed. '$URL' is substituted for the torrent's URL. This array is otherwise passed directly to Python's subprocess module, which takes care of any escaping or quoting, so there is no need to do so yourself. If missing, 'default_command' is used.",
                                             "type": "array",
                                             "items": {
                                                 "type": "string"
                                             },
                                             "minItems": 1
-                                        },
-                                        "use_shell_for_command": {
-                                            "description": "Defaults to false.",
-                                            "type": "boolean"
                                         }
                                     },
                                     "required": [
