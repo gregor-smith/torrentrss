@@ -8,9 +8,9 @@ import shutil
 import subprocess
 from os import PathLike
 from pathlib import Path
-from logging import Formatter, Logger, StreamHandler
 from argparse import ArgumentParser
 from typing.re import Pattern, Match
+from logging import Formatter, Logger, StreamHandler
 from typing import (
     Any,
     Dict,
