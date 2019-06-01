@@ -8,7 +8,6 @@ import shutil
 import hashlib
 import logging
 import tempfile
-import contextlib
 import subprocess
 from pathlib import Path
 from typing.re import Pattern, Match
@@ -68,14 +67,10 @@ def get_schema_dict() -> Json:
     return json.loads(get_schema())
 
 
-def show_exception_gui(exception: Exception) -> None:
+def show_exception_notification(exception: Exception) -> None:
     text = f'An exception of type {exception.__class__.__name__} occurred.'
     if shutil.which('notify-send') is not None:
         subprocess.Popen(['notify-send', '--app-name', NAME, NAME, text])
-        return
-    with contextlib.suppress(ImportError):
-        from easygui import exceptionbox
-        exceptionbox(msg=text, title=NAME)
 
 
 class TorrentRSS:
@@ -513,7 +508,7 @@ def main(logging_level: str) -> None:
         config.save_episode_numbers()
     except Exception as error:
         logging.exception(error.__class__.__name__)
-        show_exception_gui(error)
+        show_exception_notification(error)
         raise
     finally:
         logging.shutdown()
