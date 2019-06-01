@@ -1,8 +1,10 @@
 import pytest
 from feedparser import FeedParserDict, parse
 
-from .. import TorrentRSS, Feed, read_text
 from .utils import local_path
+from ..feed import Feed
+from ..torrentrss import TorrentRSS
+from ..utils import read_text
 
 
 @pytest.fixture

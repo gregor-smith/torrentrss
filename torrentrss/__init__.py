@@ -1,2 +1,4 @@
-from ._torrentrss import *
+from .constants import VERSION
+
+
 __version__ = VERSION

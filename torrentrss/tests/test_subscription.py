@@ -2,7 +2,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from .. import Subscription, EpisodeNumber, ConfigError
+from ..subscription import Subscription
+from ..episode_number import EpisodeNumber
+from ..errors import ConfigError
 
 
 def test_properties() -> None:
@@ -16,6 +18,7 @@ def test_properties() -> None:
     assert sub.name == 'test subscription'
     assert sub.regex.pattern == r'test pattern (?P<episode>.)'
     assert sub.number == EpisodeNumber(None, None)
+    assert sub.command is not None
     assert sub.command.arguments == ['test', 'command']
 
 

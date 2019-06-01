@@ -5,7 +5,10 @@ from unittest.mock import patch, call
 import pytest
 from feedparser import FeedParserDict
 
-from .. import TorrentRSS, EpisodeNumber, Feed, Command
+from ..torrentrss import TorrentRSS
+from ..episode_number import EpisodeNumber
+from ..feed import Feed
+from ..command import Command
 from .utils import task_mock
 
 

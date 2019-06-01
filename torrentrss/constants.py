@@ -1,4 +1,23 @@
-{
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import appdirs
+
+
+NAME = 'torrentrss'
+VERSION = '0.8'
+CONFIG_PATH = Path(
+    appdirs.user_config_dir(appname=NAME, roaming=True),
+    'config.json'
+)
+LOG_MESSAGE_FORMAT = '[%(asctime)s %(levelname)s] %(message)s'
+COMMAND_URL_ARGUMENT = '$URL'
+TORRENT_MIMETYPE = 'application/x-bittorrent'
+WINDOWS = sys.platform == 'win32' or sys.platform == 'cygwin'
+
+CONFIG_SCHEMA = {
     "$schema": "http://json-schema.org/draft-04/schema#",
     "type": "object",
     "properties": {

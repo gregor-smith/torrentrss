@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from .. import EpisodeNumber
+from ..episode_number import EpisodeNumber
 
 
 def test_comparison() -> None:

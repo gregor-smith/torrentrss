@@ -3,7 +3,8 @@ from unittest.mock import patch
 import pytest
 from feedparser import FeedParserDict
 
-from .. import Feed, EpisodeNumber
+from ..feed import Feed
+from ..episode_number import EpisodeNumber
 from .utils import task_mock
 
 
