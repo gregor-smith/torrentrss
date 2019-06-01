@@ -23,8 +23,11 @@ class TestCommand:
     def test_arguments(self, popen):
         command = Command(['command', '$PATH_OR_URL', '--option'], shell=True)
         command(PATH)
-        popen.assert_called_once_with(['command', PATH, '--option'],
-                                      shell=True, startupinfo=ANY)
+        popen.assert_called_once_with(
+            args=['command', PATH, '--option'],
+            shell=True,
+            startupinfo=ANY
+        )
 
     @patch.object(Command, 'startfile')
     def test_no_arguments(self, startfile):
@@ -44,7 +47,8 @@ class TestEpisodeNumber:
 
     def test_from_regex(self):
         match = re.search(
-            r'S(?P<series>[0-9]{2})E(?P<episode>[0-9]{2})', 'S01E01'
+            r'S(?P<series>[0-9]{2})E(?P<episode>[0-9]{2})',
+            'S01E01'
         )
         assert EpisodeNumber(1, 1) == EpisodeNumber.from_regex_match(match)
 
