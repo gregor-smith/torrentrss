@@ -19,6 +19,7 @@ from typing import (
     Iterator,
     Optional,
     AsyncIterator,
+    TextIO,
     cast
 )
 
@@ -93,17 +94,6 @@ def show_exception_notification(exception: Exception) -> None:
     )
 
 
-def open_url_in_default_application(url: str) -> None:
-    if WINDOWS:
-        os.startfile(url)
-        return
-    subprocess.Popen(
-        args=['open' if sys.platform == 'darwin' else 'xdg-open', url],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
-    )
-
-
 class TorrentRSS:
     path: PathLike
     config: Json
@@ -143,7 +133,8 @@ class TorrentRSS:
                 else:
                     await sub.command(url)
 
-    async def save_episode_numbers(self, file: Optional[AIOFile] = None) -> None:
+    # Optional TextIO parameter for saving to a StringIO during testing
+    async def save_episode_numbers(self, file: Optional[TextIO] = None) -> None:
         logger.info('Writing episode numbers')
 
         json_feeds = self.config['feeds']
@@ -160,7 +151,7 @@ class TorrentRSS:
         if file is None:
             await write_text(self.path, text)
         else:
-            await file.write(text)
+            file.write(text)
 
     async def run(self) -> None:
         await self.check_feeds()
@@ -175,6 +166,17 @@ class Command:
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}(arguments={self.arguments})'
+
+    @staticmethod
+    def launch_with_default_application(url: str) -> None:
+        if WINDOWS:
+            os.startfile(url)
+            return
+        subprocess.Popen(
+            args=['open' if sys.platform == 'darwin' else 'xdg-open', url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
 
     def subbed_arguments(self, url: str) -> Iterator[str]:
         # The repl parameter here is a function which at first looks like it
@@ -211,7 +213,7 @@ class Command:
             )
 
         logger.info(f'Launching {url!r} with default program')
-        open_url_in_default_application(url)
+        self.launch_with_default_application(url)
         return None
 
 

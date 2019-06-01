@@ -9,6 +9,7 @@ ipdb = "*"
 pytest = "*"
 mypy = "*"
 flake8 = "*"
+pytest-asyncio = "*"
 
 [packages]
 requests = "*"
