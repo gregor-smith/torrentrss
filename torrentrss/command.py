@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import os
 import re
-import sys
 from typing import Optional, List, Iterator, Match, cast
-from subprocess import Popen, DEVNULL, STARTUPINFO, STARTF_USESHOWWINDOW
+from subprocess import CompletedProcess, STARTUPINFO, STARTF_USESHOWWINDOW
 
-from .logging import logger
+from . import logging
 from .constants import WINDOWS, COMMAND_URL_ARGUMENT
+from .utils import run_subprocess, open_with_default_application
 
 
 class Command:
@@ -18,17 +17,6 @@ class Command:
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}(arguments={self.arguments})'
-
-    @staticmethod
-    def launch_with_default_application(url: str) -> None:
-        if WINDOWS:
-            os.startfile(url)
-            return
-        Popen(
-            args=['open' if sys.platform == 'darwin' else 'xdg-open', url],
-            stdout=DEVNULL,
-            stderr=DEVNULL
-        )
 
     def subbed_arguments(self, url: str) -> Iterator[str]:
         # The repl parameter here is a function which at first looks like it
@@ -46,8 +34,12 @@ class Command:
                 string=argument
             )
 
-    async def __call__(self, url: str) -> Optional[Popen]:
-        if self.arguments is not None:
+    async def __call__(self, url: str) -> None:
+        if self.arguments is None:
+            await logging.info(f'Launching {url!r} with default program')
+            await open_with_default_application(url)
+        else:
+            arguments = list(self.subbed_arguments(url))
             startupinfo: Optional[STARTUPINFO]
             if WINDOWS:
                 startupinfo = STARTUPINFO()
@@ -55,15 +47,10 @@ class Command:
             else:
                 startupinfo = None
 
-            arguments = list(self.subbed_arguments(url))
-            logger.info(
+            await logging.info(
                 f'Launching subprocess with arguments {arguments}'
             )
-            return Popen(
+            await run_subprocess(
                 args=arguments,
                 startupinfo=startupinfo
             )
-
-        logger.info(f'Launching {url!r} with default program')
-        self.launch_with_default_application(url)
-        return None

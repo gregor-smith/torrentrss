@@ -5,8 +5,8 @@ from typing import Dict, Optional, AsyncIterator, Tuple
 from aiohttp import ClientSession
 from feedparser import FeedParserDict, parse as parse_feed
 
+from . import logging
 from .utils import Json
-from .logging import logger
 from .errors import FeedError
 from .constants import TORRENT_MIMETYPE
 from .subscription import Subscription
@@ -37,14 +37,12 @@ class Feed:
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}(name={self.name!r}, url={self.url!r})'
 
-    @property
-    def headers(self) -> Dict[str, str]:
-        if self.user_agent is None:
-            return {}
-        return {'User-Agent': self.user_agent}
-
     async def fetch(self) -> FeedParserDict:
-        async with ClientSession(headers=self.headers) as session:
+        headers = (
+            {} if self.user_agent is None else
+            {'User-Agent': self.user_agent}
+        )
+        async with ClientSession(headers=headers) as session:
             async with session.get(self.url) as response:
                 if response.status != 200:
                     raise FeedError(
@@ -59,7 +57,7 @@ class Feed:
                 f'Feed {self.name!r}: error parsing url {self.url!r}'
             ) from rss['bozo_exception']
 
-        logger.info(f'Feed {self.name!r}: downloaded url {self.url!r}')
+        await logging.info(f'Feed {self.name!r}: downloaded url {self.url!r}')
         return rss
 
     async def matching_subs(self) -> AsyncIterator[Tuple[Subscription, FeedParserDict]]:
@@ -83,7 +81,7 @@ class Feed:
                 if match:
                     number = EpisodeNumber.from_regex_match(match)
                     if number > original_numbers[sub]:
-                        logger.info(
+                        await logging.info(
                             f'MATCH: entry {index} {entry["title"]!r} has '
                             + f'greater number than sub {sub.name!r}: '
                             + f'{number} > {original_numbers[sub]}'
@@ -91,14 +89,14 @@ class Feed:
                         sub.number = number
                         yield sub, entry
                     else:
-                        logger.debug(
+                        await logging.debug(
                             f'NO MATCH: entry {index} {entry["title"]!r} '
                             + 'matches but number less than or equal to sub '
                             + f'{sub.name!r}: {number} <= '
                             + f'{original_numbers[sub]}'
                         )
                 else:
-                    logger.debug(
+                    await logging.debug(
                         f'NO MATCH: entry {index} {entry["title"]!r} against '
                         + f'sub {sub.name!r}'
                     )
@@ -107,13 +105,13 @@ class Feed:
     async def get_entry_url(rss_entry: FeedParserDict) -> str:
         for link in rss_entry['links']:
             if link['type'] == TORRENT_MIMETYPE:
-                logger.debug(
+                await logging.debug(
                     f'Entry {rss_entry["title"]!r}: first link with mimetype '
                     + f'{TORRENT_MIMETYPE!r} is {link["href"]!r}'
                 )
                 return link['href']
 
-        logger.info(
+        await logging.info(
             f'Entry {rss_entry["title"]!r}: no link with mimetype '
             + f'{TORRENT_MIMETYPE!r}, returning first link '
             + f'{rss_entry["link"]!r}'

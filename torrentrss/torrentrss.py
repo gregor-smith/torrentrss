@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+from io import StringIO
 from os import PathLike
-from typing import Dict, Optional, TextIO
+from typing import Dict, Optional
 
 import jsonschema
 
+from . import logging
 from .feed import Feed
-from .logging import logger
 from .command import Command
 from .utils import Json, read_text, write_text
 from .constants import CONFIG_PATH, CONFIG_SCHEMA
@@ -51,9 +52,9 @@ class TorrentRSS:
                 else:
                     await sub.command(url)
 
-    # Optional TextIO parameter for saving to a StringIO during testing
-    async def save_episode_numbers(self, file: Optional[TextIO] = None) -> None:
-        logger.info('Writing episode numbers')
+    # Optional parameter for writing to a StringIO during testing
+    async def save_episode_numbers(self, file: Optional[StringIO] = None) -> None:
+        await logging.info('Writing episode numbers')
 
         json_feeds = self.config['feeds']
         for feed_name, feed in self.feeds.items():

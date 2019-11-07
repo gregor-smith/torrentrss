@@ -17,8 +17,7 @@ feedparser = "*"
 jsonschema = "*"
 aiohttp = "*"
 aiofile = "*"
-aiologger = "*"
 appdirs = "*"
 
 [requires]
-python_version = "3.7"
+python_version = "3.8"

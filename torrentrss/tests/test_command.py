@@ -9,7 +9,7 @@ from ..command import Command
 async def test_arguments() -> None:
     command = Command(['command', '$URL', '--option'])
 
-    with patch('torrentrss.command.Popen') as mock:
+    with patch('torrentrss.command.run_subprocess') as mock:
         await command('http://test.com/test.torrent')
         mock.assert_called_once_with(
             args=['command', 'http://test.com/test.torrent', '--option'],
@@ -21,6 +21,6 @@ async def test_arguments() -> None:
 async def test_no_arguments() -> None:
     command = Command()
 
-    with patch.object(Command, 'launch_with_default_application') as mock:
+    with patch('torrentrss.command.open_with_default_application') as mock:
         await command('http://test.com/test.torrent')
         mock.assert_called_once_with('http://test.com/test.torrent')
