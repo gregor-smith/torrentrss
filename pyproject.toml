@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "torrentrss"
+version = "0.1.0"
+description = ""
+authors = ["Gregor Smith <gregor_smith@outlook.com>"]
+license = "MIT"
+include = ["torrentrss/**/*.py"]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+feedparser = "^5.2"
+jsonschema = "^3.2"
+aiohttp = "^3.6"
+aiofile = "^1.5"
+appdirs = "^1.4"
+
+[tool.poetry.dev-dependencies]
+mypy = "^0.740.0"
+flake8 = "^3.7"
+ipython = "^7.10"
+ipdb = "^0.12.2"
+pytest = "^5.3"
+pytest-asyncio = "^0.10.0"
+
+[tool.poetry.scripts]
+torrentrss = 'torrentrss.cli:main'
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
