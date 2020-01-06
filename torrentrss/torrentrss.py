@@ -44,13 +44,16 @@ class TorrentRSS:
         return cls(path, config)
 
     async def check_feeds(self) -> None:
-        for feed in self.feeds.values():
-            async for sub, entry in feed.matching_subs():
-                url = await Feed.get_entry_url(entry)
-                if sub.command is None:
-                    await self.default_command(url)
-                else:
-                    await sub.command(url)
+        urls = [
+            (
+                await Feed.get_entry_url(entry),
+                sub.command or self.default_command
+            )
+            for feed in self.feeds.values()
+            async for sub, entry in feed.matching_subs()
+        ]
+        for url, command in urls:
+            await command(url)
 
     # Optional parameter for writing to a StringIO during testing
     async def save_episode_numbers(self, file: Optional[StringIO] = None) -> None:
