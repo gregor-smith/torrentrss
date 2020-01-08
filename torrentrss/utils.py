@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import sys
-import shutil
 import asyncio
 import subprocess
 from os import PathLike
@@ -57,19 +56,24 @@ def wrap_for_asyncio(func):
     return run
 
 
-which = wrap_for_asyncio(shutil.which)
 run_subprocess = wrap_for_asyncio(subprocess.run)
 
 
 async def show_exception_notification(exception: Exception) -> None:
-    if await which('notify-send') is None:
-        return
-    text = f'An exception of type {exception.__class__.__name__} occurred.'
-    await run_subprocess(
-        args=['notify-send', '--app-name', NAME, NAME, text],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
-    )
+    try:
+        await run_subprocess(
+            args=[
+                'notify-send',
+                '--app-name',
+                NAME,
+                NAME,
+                f'An exception of type {exception.__class__.__name__} occurred.'
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+    except FileNotFoundError:
+        pass
 
 
 async def read_text(path: PathLike) -> str:
