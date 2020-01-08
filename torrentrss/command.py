@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from typing import Optional, List, Iterator, Match, cast
-from subprocess import CompletedProcess, STARTUPINFO, STARTF_USESHOWWINDOW
+from subprocess import STARTUPINFO, STARTF_USESHOWWINDOW
 
 from . import logging
 from .constants import WINDOWS, COMMAND_URL_ARGUMENT
