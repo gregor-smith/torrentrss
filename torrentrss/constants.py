@@ -7,7 +7,7 @@ import appdirs
 
 
 NAME = 'torrentrss'
-VERSION = '0.8'
+VERSION = '0.9.0'
 CONFIG_PATH = Path(
     appdirs.user_config_dir(appname=NAME, roaming=True),
     'config.json'
